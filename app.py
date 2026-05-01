@@ -137,13 +137,17 @@ def handle_message(event):
     try:
         app.logger.info("呼叫 Gemini API...")
         
-        response = client.models.generate_content(
-            model="gemini-1.5-flash",
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
-                temperature=0.7,
-            ),
-            contents=conversation_history[user_id]
+response = client.models.generate_content(
+    model="gemini-2.0-flash-exp",  
+    contents=conversation_history[user_id],
+    config=types.GenerateContentConfig(
+        system_instruction=SYSTEM_PROMPT,
+        temperature=0.7,
+    )
+)
+        
+
+ contents=conversation_history[user_id]
         )
         
         reply_text = response.text
