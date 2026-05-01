@@ -138,7 +138,7 @@ def handle_message(event):
         app.logger.info("呼叫 Gemini API...")
         
         response = client.models.generate_content(
-            model="gemini-2.0-flash-exp",
+            model="gemini-1.5-flash",
             config=types.GenerateContentConfig(
                 system_instruction=SYSTEM_PROMPT,
                 temperature=0.7,
