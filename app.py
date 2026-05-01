@@ -1,15 +1,90 @@
-from flask import Flask, request, abort
-from linebot import LineBotApi, WebhookHandler
-from linebot.exceptions import InvalidSignatureError
-from linebot.models import MessageEvent, TextMessage, TextSendMessage
+# ==========================================
+# LINE Bot with Gemini AI for Render
+# ==========================================
 import os
+import datetime
+from google import genai
+from google.genai import types
+from flask import Flask, request, abort
+from linebot.v3 import WebhookHandler
+from linebot.v3.exceptions import InvalidSignatureError
+from linebot.v3.messaging import (
+    Configuration,
+    ApiClient,
+    MessagingApi,
+    ReplyMessageRequest,
+    TextMessage
+)
+from linebot.v3.webhooks import MessageEvent, TextMessageContent
 
+# ==========================================
+# 從環境變數讀取金鑰
+# ==========================================
+LINE_CHANNEL_ACCESS_TOKEN = os.getenv('LINE_CHANNEL_ACCESS_TOKEN')
+LINE_CHANNEL_SECRET = os.getenv('LINE_CHANNEL_SECRET')
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+
+# ==========================================
+# 初始化服務
+# ==========================================
+client = genai.Client(api_key=GEMINI_API_KEY)
+configuration = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
+handler = WebhookHandler(LINE_CHANNEL_SECRET)
 app = Flask(__name__)
 
-# 從環境變數讀取（之後在 Render 設定）
-line_bot_api = LineBotApi(os.getenv('LINE_CHANNEL_ACCESS_TOKEN'))
-handler = WebhookHandler(os.getenv('LINE_CHANNEL_SECRET'))
+conversation_history = {}
+user_daily_count = {}
+DAILY_LIMIT = 6
 
+SYSTEM_PROMPT = '''你是 Orange Fruit 橙實設定的專業運動助理，名字叫小橙特助。請用專業但親切的口吻回答，使用台灣繁體中文。
+
+你擅長：
+- 單車 Bikefit 調整
+- 運動伸展放鬆
+- 騎乘肌群訓練
+- 運動傷害預防
+
+回答規則：
+1. 當使用者描述不適或問題時，先簡短分析原因（3-5句即可），然後只問一個關鍵問題：
+   「您目前比較想了解的是：
+   A. 單車 Bikefit 調整建議
+   B. 肌肉伸展與放鬆方法」
+
+2. 根據使用者選擇 A 或 B，再進一步給建議，每次最多問 2-3 個問題。
+
+3. 當使用者選擇 A（Bikefit）或表達想預約、想進一步評估、想知道費用時，回覆：
+   「建議您前往我們的專業 Bikefit 預約頁面，填寫基本資料後我們會安排專人與您聯繫：
+   https://orange-fruit-ai-bikefit.vercel.app/」
+
+4. 回答長度適中，不要一次給太多資訊。
+
+5. 反問時每個問題單獨一行，問題之間空一行，不使用任何符號或 Markdown。
+
+6. 若問題與單車或運動完全無關，簡短回覆無法協助並引導回運動相關問題。
+
+7. 絕對不要只是重複使用者說的話，要給出有意義的回應和建議。
+'''
+
+# ==========================================
+# 限流函數
+# ==========================================
+def get_today():
+    return datetime.date.today().isoformat()
+
+def is_over_limit(user_id):
+    today = get_today()
+    if user_id not in user_daily_count:
+        user_daily_count[user_id] = {"date": today, "count": 0}
+    if user_daily_count[user_id]["date"] != today:
+        user_daily_count[user_id] = {"date": today, "count": 0}
+    return user_daily_count[user_id]["count"] >= DAILY_LIMIT
+
+def add_count(user_id):
+    user_daily_count[user_id]["count"] += 1
+
+# ==========================================
+# Webhook 路由
+# ==========================================
 @app.route("/callback", methods=['POST'])
 def callback():
     signature = request.headers['X-Line-Signature']
@@ -19,23 +94,91 @@ def callback():
     try:
         handler.handle(body, signature)
     except InvalidSignatureError:
+        app.logger.error("Invalid signature")
         abort(400)
     
     return 'OK'
 
-@handler.add(MessageEvent, message=TextMessage)
-def handle_message(event):
-    # 簡單回覆功能
-    msg = event.message.text
-    line_bot_api.reply_message(
-        event.reply_token,
-        TextSendMessage(text=f"你說：{msg}")
-    )
-
 @app.route("/", methods=['GET'])
 def home():
-    return "LINE Bot is running!"
+    return "Orange Fruit LINE Bot is running! 🍊"
 
+@handler.add(MessageEvent, message=TextMessageContent)
+def handle_message(event):
+    user_text = event.message.text
+    user_id = event.source.user_id
+
+    app.logger.info(f"收到訊息: {user_text} from {user_id}")
+
+    # 限流檢查
+    if is_over_limit(user_id):
+        reply_text = "感謝您今日的諮詢！您今天的免費諮詢次數已用完。\n\n歡迎直接預約我們的專業 Bikefit 服務，讓教練為您進行完整評估：\n\nhttps://orange-fruit-ai-bikefit.vercel.app/"
+        with ApiClient(configuration) as api_client:
+            line_bot_api = MessagingApi(api_client)
+            line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text=reply_text)]
+                )
+            )
+        return
+
+    # 計數 +1
+    add_count(user_id)
+
+    # 建立對話記憶
+    if user_id not in conversation_history:
+        conversation_history[user_id] = []
+
+    conversation_history[user_id].append(
+        types.Content(role="user", parts=[types.Part(text=user_text)])
+    )
+
+    try:
+        app.logger.info("呼叫 Gemini API...")
+        
+        response = client.models.generate_content(
+            model="gemini-2.0-flash-exp",
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPT,
+                temperature=0.7,
+            ),
+            contents=conversation_history[user_id]
+        )
+        
+        reply_text = response.text
+        app.logger.info(f"Gemini 回應: {reply_text}")
+
+        # 儲存 AI 的回應到對話歷史
+        conversation_history[user_id].append(
+            types.Content(role="model", parts=[types.Part(text=reply_text)])
+        )
+
+        # 保持對話歷史在合理長度
+        if len(conversation_history[user_id]) > 20:
+            conversation_history[user_id] = conversation_history[user_id][-20:]
+
+    except Exception as e:
+        app.logger.error(f"Gemini API 錯誤: {str(e)}")
+        reply_text = "抱歉，教練正在幫客戶調整車位，請稍後再試！如果問題持續，歡迎直接預約：https://orange-fruit-ai-bikefit.vercel.app/"
+
+    # 回覆訊息
+    try:
+        with ApiClient(configuration) as api_client:
+            line_bot_api = MessagingApi(api_client)
+            line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text=reply_text)]
+                )
+            )
+        app.logger.info("訊息已成功回覆")
+    except Exception as e:
+        app.logger.error(f"LINE 回覆錯誤: {str(e)}")
+
+# ==========================================
+# 啟動應用程式
+# ==========================================
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
