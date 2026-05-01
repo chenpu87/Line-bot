@@ -143,11 +143,8 @@ response = client.models.generate_content(
     config=types.GenerateContentConfig(
         system_instruction=SYSTEM_PROMPT,
         temperature=0.7,
-    )
-
- contents=conversation_history[user_id]
+    )     
        
-        
         reply_text = response.text
         app.logger.info(f"Gemini 回應: {reply_text}")
 
