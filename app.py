@@ -1,10 +1,10 @@
 # ==========================================
 # LINE Bot with Gemini AI for Render
+# 使用 google-generativeai (舊版穩定 SDK)
 # ==========================================
 import os
 import datetime
-from google import genai
-from google.genai import types
+import google.generativeai as genai
 from flask import Flask, request, abort
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
@@ -27,7 +27,7 @@ GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 # ==========================================
 # 初始化服務
 # ==========================================
-client = genai.Client(api_key=GEMINI_API_KEY)
+genai.configure(api_key=GEMINI_API_KEY)
 configuration = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 app = Flask(__name__)
@@ -130,29 +130,35 @@ def handle_message(event):
     if user_id not in conversation_history:
         conversation_history[user_id] = []
 
-    conversation_history[user_id].append(
-        types.Content(role="user", parts=[types.Part(text=user_text)])
-    )
+    # 加入使用者訊息
+    conversation_history[user_id].append({
+        "role": "user",
+        "parts": [user_text]
+    })
 
     try:
         app.logger.info("呼叫 Gemini API...")
         
-        response = client.models.generate_content(
-            model="gemini-2.0-flash-exp",
-            contents=conversation_history[user_id],
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
-                temperature=0.7,
-            )
+        # 建立模型
+        model = genai.GenerativeModel(
+            model_name='gemini-1.5-flash',
+            system_instruction=SYSTEM_PROMPT
         )
         
+        # 開始對話
+        chat = model.start_chat(history=conversation_history[user_id][:-1])
+        
+        # 發送訊息
+        response = chat.send_message(user_text)
         reply_text = response.text
+        
         app.logger.info(f"Gemini 回應: {reply_text}")
 
         # 儲存 AI 的回應到對話歷史
-        conversation_history[user_id].append(
-            types.Content(role="model", parts=[types.Part(text=reply_text)])
-        )
+        conversation_history[user_id].append({
+            "role": "model",
+            "parts": [reply_text]
+        })
 
         # 保持對話歷史在合理長度
         if len(conversation_history[user_id]) > 20:
