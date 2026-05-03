@@ -156,7 +156,7 @@ KEYWORD_IMAGE_MAP = {
         f"{BASE_URL}/hip_joint/hip_joint_training_pos_1.jpg",
     ],
     "bikefit": [
-        f"{BASE_URL}/bikefit/bikefit_saddle_fit.jpg",
+        f"{BASE_URL}/bikefit/bikefit_the_hx_hy.jpg",
     ],
 }
 
