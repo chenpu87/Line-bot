@@ -35,7 +35,7 @@ app = Flask(__name__)
 
 conversation_history = {}
 user_daily_count = {}
-DAILY_LIMIT = 6
+DAILY_LIMIT = 10
 
 SYSTEM_PROMPT = '''你是 Orange Fruit 橙實設定的專業運動助理，名字叫小橙特助。請用專業但親切的口吻回答，使用台灣繁體中文。
 
