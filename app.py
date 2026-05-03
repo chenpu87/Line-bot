@@ -130,8 +130,8 @@ IMAGE_DATABASE = {
     "#騎士重置": {
         "text": "🔄 騎士每日重置動作\n\n每天 5 分鐘，放鬆緊繃的肌肉，改善久坐造成的腰痠背痛！",
         "images": [
-            f"{BASE_URL}/cyclist_reset/reset_warm_up_cool_down_1.jpg",
-            f"{BASE_URL}/cyclist_reset/reset_warm_up_cool_down_2.jpg",
+            f"{BASE_URL}/cyclist_reset/reset_warm_up_cool%20_down_1.jpg",
+            f"{BASE_URL}/cyclist_reset/reset_warm_up_cool%20_down_2.jpg",
         ]
     },
 }
