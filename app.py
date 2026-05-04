@@ -17,12 +17,8 @@ import google.generativeai as genai
 
 from flask import Flask, request, abort, send_file
 
-# Playwright 可用性檢查（Render 上需在 requirements.txt 加 playwright）
-try:
-    from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
-    PLAYWRIGHT_AVAILABLE = True
-except ImportError:
-    PLAYWRIGHT_AVAILABLE = False
+# Playwright 不在 Render 免費方案使用
+PLAYWRIGHT_AVAILABLE = False
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import (
@@ -98,7 +94,8 @@ FRAME_CODE_MAP = {
     ("bmc", "teammachine slr", "2025"): "BMC-TMS-25",
     ("orbea", "orca aero", "2026"): "ORB-OAR-26",
     ("orbea", "orca", "2026"): "ORB-ORC-26",
-    ("factor", "one", "2026"): "FAC-ONE25",
+    ("factor", "one", "2026"): "FAC-ONE-26",
+    ("factor", "one", "2025"): "FAC-ONE25",
     ("factor", "o2", "2026"): "FAC-O2-26",
     ("factor", "o2", "2025"): "FAC-O2-25",
 }
@@ -465,7 +462,7 @@ def handle_velogicfit_flow(event, user_id, text):
             f"墊片高度：{data['spacer']}mm\n"
             f"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501"
         )])
-        _push(user_id, [_text("\u23f3 計算中，請稍候約 30 秒...")])
+        # 不需要 "計算中" 訊息，連結立即回傳
 
         def _bg(uid, d):
             try:
