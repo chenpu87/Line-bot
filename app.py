@@ -11,6 +11,7 @@ import logging
 import tempfile
 import urllib.parse
 import urllib.request
+import requests
 import google.generativeai as genai
 from flask import Flask, request, abort, send_file
 from linebot.v3 import WebhookHandler
@@ -25,7 +26,6 @@ from linebot.v3.messaging import (
     ImageMessage
 )
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
-from playwright.sync_api import sync_playwright
 
 # ==========================================
 # 環境變數
@@ -33,8 +33,13 @@ from playwright.sync_api import sync_playwright
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv('LINE_CHANNEL_ACCESS_TOKEN')
 LINE_CHANNEL_SECRET       = os.getenv('LINE_CHANNEL_SECRET')
 GEMINI_API_KEY            = os.getenv('GEMINI_API_KEY')
-IMGUR_CLIENT_ID           = os.getenv('IMGUR_CLIENT_ID', '')
-BASE_URL                  = os.getenv('BASE_URL', '')
+NOTIFY_GROUP_ID           = os.getenv('NOTIFY_GROUP_ID', '')   # C 開頭的群組 ID
+OWNER_USER_ID             = os.getenv('OWNER_USER_ID', '')     # U 開頭的你的 User ID
+
+# 服務時間：台灣時間 09:00 - 12:00
+SERVICE_START = 9
+SERVICE_END   = 12
+TZ_OFFSET     = 8   # UTC+8
 
 # ==========================================
 # 初始化
@@ -51,11 +56,9 @@ conversation_history = {}
 user_daily_count     = {}
 DAILY_LIMIT          = 10
 geo_states: dict     = {}
-_image_cache: dict   = {}
 
 SIZE_OPTIONS   = ["XXS", "XS", "S", "M", "L", "XL"]
 SPACER_OPTIONS = ["10", "15", "20", "25", "30", "35", "40", "45"]
-STEM_ANGLES    = ["-6", "-8", "-10", "-12", "-17"]
 
 SYSTEM_PROMPT = '''你是 Orange Fruit 橙實設定的專業運動助理，名字叫小橙特助。請用專業但親切的口吻回答，使用台灣繁體中文。
 
@@ -169,7 +172,8 @@ KEYWORD_IMAGE_MAP = {
 # ==========================================
 # 工具函數
 # ==========================================
-def get_today(): return datetime.date.today().isoformat()
+def get_today():
+    return datetime.date.today().isoformat()
 
 def is_over_limit(user_id):
     today = get_today()
@@ -179,20 +183,64 @@ def is_over_limit(user_id):
         user_daily_count[user_id] = {"date": today, "count": 0}
     return user_daily_count[user_id]["count"] >= DAILY_LIMIT
 
-def add_count(user_id): user_daily_count[user_id]["count"] += 1
+def add_count(user_id):
+    user_daily_count[user_id]["count"] += 1
+
+def is_service_hours():
+    """判斷目前是否在服務時間（台灣時間 09:00-12:00）"""
+    utc_now  = datetime.datetime.utcnow()
+    tw_now   = utc_now + datetime.timedelta(hours=TZ_OFFSET)
+    return SERVICE_START <= tw_now.hour < SERVICE_END
 
 def _reply(reply_token, messages):
-    with ApiClient(configuration) as api_client:
-        MessagingApi(api_client).reply_message(
-            ReplyMessageRequest(reply_token=reply_token, messages=messages))
+    """回覆訊息"""
+    try:
+        with ApiClient(configuration) as api_client:
+            MessagingApi(api_client).reply_message(
+                ReplyMessageRequest(reply_token=reply_token, messages=messages)
+            )
+    except Exception as e:
+        logger.error(f"Reply failed: {e}")
 
 def _push(user_id, messages):
-    with ApiClient(configuration) as api_client:
-        MessagingApi(api_client).push_message(
-            PushMessageRequest(to=user_id, messages=messages))
+    """推播訊息給指定用戶或群組"""
+    try:
+        with ApiClient(configuration) as api_client:
+            MessagingApi(api_client).push_message(
+                PushMessageRequest(to=user_id, messages=messages)
+            )
+    except Exception as e:
+        logger.error(f"Push failed: {e}")
 
 def _text(msg): return TextMessage(text=msg)
 def _img(url):  return ImageMessage(original_content_url=url, preview_image_url=url)
+
+# ==========================================
+# 通知老闆（推播到群組）
+# ==========================================
+def notify_owner(bike1: dict, bike2: dict, requester_user_id: str):
+    """有客人需要車架對照圖時，通知老闆群組"""
+    if not NOTIFY_GROUP_ID:
+        logger.warning("NOTIFY_GROUP_ID 未設定，無法發送通知")
+        return
+
+    tw_now = datetime.datetime.utcnow() + datetime.timedelta(hours=TZ_OFFSET)
+    time_str = tw_now.strftime("%m/%d %H:%M")
+
+    msg = (
+        f"📐 車架對照圖需求\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"⏰ {time_str}\n"
+        f"👤 User: {requester_user_id[:8]}...\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🔵 Bike 1：{_bdisp(bike1)}\n"
+        f"⚫ Bike 2：{_bdisp(bike2)}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"請至 BikeInsights 截圖後\n"
+        f"回傳給客人 {requester_user_id[:8]}..."
+    )
+    _push(NOTIFY_GROUP_ID, [_text(msg)])
+    logger.info(f"已通知群組：{NOTIFY_GROUP_ID}")
 
 # ==========================================
 # 原有功能：Rich Menu & AI 對話
@@ -204,7 +252,7 @@ def handle_rich_menu_command(event, command):
         else:
             handle_ai_conversation(event, command)
         return
-    data = IMAGE_DATABASE[command]
+    data     = IMAGE_DATABASE[command]
     messages = [_text(data["text"])] + [_img(u) for u in data["images"]]
     _reply(event.reply_token, messages)
 
@@ -216,13 +264,15 @@ def handle_ai_conversation(event, user_text):
             "歡迎直接預約我們的專業 Bikefit 服務，讓教練為您進行完整評估：\n\n"
             "https://orange-fruit-ai-bikefit.vercel.app/"
         )]); return
+
     add_count(user_id)
     if user_id not in conversation_history:
         conversation_history[user_id] = []
     conversation_history[user_id].append({"role": "user", "parts": [user_text]})
+
     try:
-        model = genai.GenerativeModel(model_name='gemini-2.5-flash', system_instruction=SYSTEM_PROMPT)
-        chat  = model.start_chat(history=conversation_history[user_id][:-1])
+        model      = genai.GenerativeModel(model_name='gemini-2.5-flash', system_instruction=SYSTEM_PROMPT)
+        chat       = model.start_chat(history=conversation_history[user_id][:-1])
         reply_text = chat.send_message(user_text).text
         conversation_history[user_id].append({"role": "model", "parts": [reply_text]})
         if len(conversation_history[user_id]) > 20:
@@ -230,50 +280,72 @@ def handle_ai_conversation(event, user_text):
     except Exception as e:
         logger.error(f"Gemini error: {e}")
         reply_text = "抱歉，教練正在忙碌中，請稍後再試！"
+
     messages = [_text(reply_text)]
     for kw, imgs in KEYWORD_IMAGE_MAP.items():
         if kw in user_text.lower():
             messages += [_img(u) for u in imgs[:2]]; break
+
     _reply(event.reply_token, messages)
 
 # ==========================================
-# 新增功能：車架幾何
+# 新功能：車架幾何
 # ==========================================
 def handle_geo_command(event, command):
     user_id = event.source.user_id
     geo_states.pop(user_id, None)
+
     if command == "#車架幾何":
         geo_states[user_id] = {"mode": "velogicfit", "step": 1, "data": {}}
         _reply(event.reply_token, [_text(
-            "🔢 Handlebar Position 計算\n━━━━━━━━━━━━━━━━━━━━\n\n"
+            "🔢 Handlebar Position 計算\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
             "步驟 1／6　請輸入車架品牌\n"
             "例如：Merida、Giant、Trek、Canyon"
         )])
+
     elif command == "#車架對照":
         geo_states[user_id] = {"mode": "bikeinsights", "step": 1, "data": {}}
         _reply(event.reply_token, [_text(
-            "📐 車架幾何對照\n━━━━━━━━━━━━━━━━━━━━\n\n"
-            "第一台車　請輸入：\n格式：品牌 車款 [年份] 尺寸\n\n"
-            "範例：\n  Merida Reacto 2026 S\n  Giant TCR 2025 M\n\n（年份可省略）"
+            "📐 車架幾何對照\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
+            "第一台車　請輸入：\n"
+            "格式：品牌 車款 [年份] 尺寸\n\n"
+            "範例：\n"
+            "  Merida Reacto 2026 S\n"
+            "  Giant TCR 2025 M\n\n"
+            "（年份可省略）"
         )])
 
+# ── VelogicFit 對話流程 ──────────────────────────────────────────────────────
 def handle_velogicfit_flow(event, user_id, text):
-    state = geo_states[user_id]; step = state["step"]; data = state["data"]
+    state = geo_states[user_id]
+    step  = state["step"]
+    data  = state["data"]
 
     if step == 1:
         data["brand"] = text; state["step"] = 2
-        _reply(event.reply_token, [_text(f"品牌：{text} ✅\n\n步驟 2／6　請輸入車款型號\n例如：Reacto、TCR、Madone")])
+        _reply(event.reply_token, [_text(
+            f"品牌：{text} ✅\n\n步驟 2／6　請輸入車款型號\n"
+            f"例如：Reacto、TCR、Madone"
+        )])
 
     elif step == 2:
         data["model"] = text; state["step"] = 3
-        _reply(event.reply_token, [_text(f"車款：{text} ✅\n\n步驟 3／6　請選擇尺寸\n請回覆：XXS / XS / S / M / L / XL")])
+        _reply(event.reply_token, [_text(
+            f"車款：{text} ✅\n\n步驟 3／6　請選擇尺寸\n"
+            f"請回覆：XXS / XS / S / M / L / XL"
+        )])
 
     elif step == 3:
         val = text.upper()
         if val not in SIZE_OPTIONS:
             _reply(event.reply_token, [_text("❌ 請輸入有效尺寸：XXS / XS / S / M / L / XL")]); return
         data["size"] = val; state["step"] = 4
-        _reply(event.reply_token, [_text(f"尺寸：{val} ✅\n\n步驟 4／6　請輸入龍頭長度（mm）\n常見：80 / 90 / 100 / 110 / 120")])
+        _reply(event.reply_token, [_text(
+            f"尺寸：{val} ✅\n\n步驟 4／6　請輸入龍頭長度（mm）\n"
+            f"常見：80 / 90 / 100 / 110 / 120"
+        )])
 
     elif step == 4:
         val = text.replace("mm", "").strip()
@@ -281,7 +353,8 @@ def handle_velogicfit_flow(event, user_id, text):
             _reply(event.reply_token, [_text("❌ 請輸入數字（例如：100）")]); return
         data["stem_length"] = val; state["step"] = 5
         _reply(event.reply_token, [_text(
-            f"龍頭長度：{val}mm ✅\n\n步驟 5／6　請選擇龍頭角度\n請回覆：-6 / -8 / -10 / -12 / -17\n（不填寫預設 -8°）"
+            f"龍頭長度：{val}mm ✅\n\n步驟 5／6　請選擇龍頭角度\n"
+            f"請回覆：-6 / -8 / -10 / -12 / -17\n（不填寫預設 -8°）"
         )])
 
     elif step == 5:
@@ -289,68 +362,285 @@ def handle_velogicfit_flow(event, user_id, text):
         if not re.match(r"^-?\d+$", val): val = "-8"
         data["stem_angle"] = val; state["step"] = 6
         _reply(event.reply_token, [_text(
-            f"龍頭角度：{val}° ✅\n\n步驟 6／6　請選擇墊片（Spacer）高度\n請回覆：10 / 15 / 20 / 25 / 30 / 35 / 40 / 45（mm）"
+            f"龍頭角度：{val}° ✅\n\n步驟 6／6　請選擇墊片（Spacer）高度\n"
+            f"請回覆：10 / 15 / 20 / 25 / 30 / 35 / 40 / 45（mm）"
         )])
 
     elif step == 6:
         val = text.replace("mm", "").strip()
         if val not in SPACER_OPTIONS:
-            _reply(event.reply_token, [_text("❌ 請輸入有效墊片高度：10 / 15 / 20 / 25 / 30 / 35 / 40 / 45（mm）")]); return
+            _reply(event.reply_token, [_text(
+                "❌ 請輸入有效墊片高度：10 / 15 / 20 / 25 / 30 / 35 / 40 / 45（mm）"
+            )]); return
+
         data["spacer"] = val
         geo_states.pop(user_id, None)
+
         _reply(event.reply_token, [_text(
-            f"✅ 確認資料\n━━━━━━━━━━━━━━━━━━━━\n"
-            f"品牌：{data['brand']}\n車款：{data['model']}\n尺寸：{data['size']}\n"
-            f"龍頭長度：{data['stem_length']}mm\n龍頭角度：{data['stem_angle']}°\n墊片高度：{data['spacer']}mm\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n⏳ 計算中，請稍候（約 15 秒）..."
+            f"✅ 確認資料\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"品牌：{data['brand']}\n"
+            f"車款：{data['model']}\n"
+            f"尺寸：{data['size']}\n"
+            f"龍頭長度：{data['stem_length']}mm\n"
+            f"龍頭角度：{data['stem_angle']}°\n"
+            f"墊片高度：{data['spacer']}mm\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"⏳ 計算中，請稍候（約 5 秒）..."
         )])
-        result = _run_velogicfit(data)
+
+        result = _run_velogicfit_api(data)
+
         if result.get("error"):
-            _push(user_id, [_text(f"❌ 查詢失敗\n{result['error']}\n\n輸入 #車架幾何 重試")])
+            _push(user_id, [_text(
+                f"❌ 查詢失敗\n{result['error']}\n\n"
+                f"請確認品牌 / 車款拼寫，再輸入 #車架幾何 重試"
+            )])
         else:
             _push(user_id, [_text(
-                f"📊 Handlebar Position\n━━━━━━━━━━━━━━━━━━━━\n"
-                f"🔹 Bar X ：{result['bar_x']} mm\n🔹 Bar Y ：{result['bar_y']} mm\n"
+                f"📊 Handlebar Position\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"🔹 Bar X ：{result['bar_x']} mm\n"
+                f"🔹 Bar Y ：{result['bar_y']} mm\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
                 f"車款：{data['brand']} {data['model']} ({data['size']})\n"
                 f"龍頭：{data['stem_length']}mm ／ {data['stem_angle']}° ／ {data['spacer']}mm spacer\n\n"
                 f"輸入 #車架幾何 查詢其他車款"
             )])
 
+# ── BikeInsights 對話流程 ────────────────────────────────────────────────────
 def handle_bikeinsights_flow(event, user_id, text):
-    state = geo_states[user_id]; step = state["step"]; data = state["data"]
+    state = geo_states[user_id]
+    step  = state["step"]
+    data  = state["data"]
 
     if step == 1:
         parsed = _parse_bike(text)
         if not parsed:
-            _reply(event.reply_token, [_text("❌ 格式錯誤\n\n請輸入：品牌 車款 [年份] 尺寸\n例如：Merida Reacto 2026 S")]); return
+            _reply(event.reply_token, [_text(
+                "❌ 格式錯誤\n\n請輸入：品牌 車款 [年份] 尺寸\n"
+                "例如：Merida Reacto 2026 S"
+            )]); return
         data["bike1"] = parsed; state["step"] = 2
         _reply(event.reply_token, [_text(
-            f"第一台：{_bdisp(parsed)} ✅\n\n第二台車　請輸入：\n格式：品牌 車款 [年份] 尺寸"
+            f"第一台：{_bdisp(parsed)} ✅\n\n"
+            f"第二台車　請輸入：\n"
+            f"格式：品牌 車款 [年份] 尺寸"
         )])
 
     elif step == 2:
         parsed = _parse_bike(text)
         if not parsed:
-            _reply(event.reply_token, [_text("❌ 格式錯誤\n\n請輸入：品牌 車款 [年份] 尺寸\n例如：Giant TCR 2025 M")]); return
+            _reply(event.reply_token, [_text(
+                "❌ 格式錯誤\n\n請輸入：品牌 車款 [年份] 尺寸\n"
+                "例如：Giant TCR 2025 M"
+            )]); return
+
         data["bike2"] = parsed
         geo_states.pop(user_id, None)
-        _reply(event.reply_token, [_text(
-            f"✅ 確認資料\n━━━━━━━━━━━━━━━━━━━━\n"
-            f"🔵 Bike 1：{_bdisp(data['bike1'])}\n⚫ Bike 2：{_bdisp(data['bike2'])}\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n⏳ 生成對照圖中（約 20 秒）..."
-        )])
-        result = _run_bikeinsights(data["bike1"], data["bike2"], user_id)
-        if result.get("error"):
-            _push(user_id, [_text(f"❌ 對照圖生成失敗\n{result['error']}\n\n輸入 #車架對照 重試")])
-        else:
-            url = result.get("image_url", "")
-            msgs = ([_img(url)] if url else []) + [_text(
-                f"📐 車架幾何對照完成\n━━━━━━━━━━━━━━━━━━━━\n"
-                f"🔵 {_bdisp(data['bike1'])}\n⚫ {_bdisp(data['bike2'])}\n\n輸入 #車架對照 再次查詢"
-            )]
-            _push(user_id, msgs)
 
+        # 判斷是否在服務時間
+        if is_service_hours():
+            # 服務時間內：直接告知並通知老闆
+            _reply(event.reply_token, [_text(
+                f"✅ 已收到需求\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"🔵 Bike 1：{_bdisp(data['bike1'])}\n"
+                f"⚫ Bike 2：{_bdisp(data['bike2'])}\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"📸 專員正在為您製作對照圖\n"
+                f"請稍候，將於服務時間內回覆！"
+            )])
+            notify_owner(data["bike1"], data["bike2"], user_id)
+        else:
+            # 非服務時間：告知時間並通知老闆
+            _reply(event.reply_token, [_text(
+                f"✅ 已收到您的對照需求\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"🔵 Bike 1：{_bdisp(data['bike1'])}\n"
+                f"⚫ Bike 2：{_bdisp(data['bike2'])}\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"⏰ 車架對照圖服務時間：\n"
+                f"每天 09:00 - 12:00\n\n"
+                f"您的需求已記錄，\n"
+                f"明天服務時間開始後將為您回覆！"
+            )])
+            notify_owner(data["bike1"], data["bike2"], user_id)
+
+# ==========================================
+# VelogicFit API（純 requests，不需要瀏覽器）
+# ==========================================
+def _run_velogicfit_api(data: dict) -> dict:
+    """
+    直接呼叫 VelogicFit 的 API 取得 Bar X / Bar Y
+    URL 格式：?fm=<model>&fg=<frame>&sl=<stem_len>&sa=<stem_angle>&sp=<spacer>
+    """
+    brand       = data["brand"]
+    model       = data["model"]
+    size        = data["size"]
+    stem_length = data["stem_length"]
+    stem_angle  = data["stem_angle"]
+    spacer      = data["spacer"]
+
+    logger.info(f"VelogicFit API: {brand} {model} {size} sl={stem_length} sa={stem_angle} sp={spacer}")
+
+    try:
+        # Step 1: 搜索車款，取得 frame model code
+        search_url = "https://app.velogicfit.com/api/frame/search"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "application/json",
+            "Referer": "https://app.velogicfit.com/frame-comparison"
+        }
+        search_resp = requests.get(
+            search_url,
+            params={"q": f"{brand} {model}"},
+            headers=headers,
+            timeout=15
+        )
+
+        if search_resp.status_code != 200:
+            # 備用：直接用 URL 參數猜測格式
+            return _velogicfit_url_method(data)
+
+        frames = search_resp.json()
+        if not frames:
+            return {"error": f"找不到 {brand} {model}，請確認拼寫"}
+
+        # 取第一個結果的 model code 和 frame geometry code
+        frame     = frames[0]
+        fm_code   = frame.get("modelCode", "")
+        fg_code   = frame.get("geometries", [{}])[0].get("code", "") if frame.get("geometries") else ""
+
+        # 選擇符合尺寸的 geometry
+        for geo in frame.get("geometries", []):
+            if geo.get("size", "").upper() == size.upper():
+                fg_code = geo.get("code", fg_code)
+                break
+
+        if not fm_code:
+            return _velogicfit_url_method(data)
+
+        # Step 2: 取得幾何計算結果
+        calc_url = "https://app.velogicfit.com/api/frame/comparison"
+        calc_resp = requests.get(
+            calc_url,
+            params={
+                "fm": fm_code,
+                "fg": fg_code,
+                "sl": stem_length,
+                "sa": stem_angle,
+                "sp": spacer,
+            },
+            headers=headers,
+            timeout=15
+        )
+
+        if calc_resp.status_code == 200:
+            result = calc_resp.json()
+            bar_x  = str(result.get("barX") or result.get("bar_x") or "")
+            bar_y  = str(result.get("barY") or result.get("bar_y") or "")
+            if bar_x and bar_y:
+                return {"bar_x": bar_x, "bar_y": bar_y}
+
+        # 若 API 格式不對，用 URL 方式
+        return _velogicfit_url_method(data)
+
+    except Exception as e:
+        logger.error(f"VelogicFit API error: {e}")
+        return _velogicfit_url_method(data)
+
+
+def _velogicfit_url_method(data: dict) -> dict:
+    """
+    備用方式：直接 GET 頁面 HTML 並 parse Bar X / Bar Y
+    （模擬已知 URL 格式 ?fm=MER-REA-26&fg=MER-REA-26-S&sl=100&sa=-8&sp=20）
+    """
+    brand       = data["brand"]
+    model       = data["model"]
+    size        = data["size"]
+    stem_length = data["stem_length"]
+    stem_angle  = data["stem_angle"]
+    spacer      = data["spacer"]
+
+    try:
+        # 先搜索取得正確的 frame code
+        search_url = "https://app.velogicfit.com/api/frames"
+        headers = {
+            "User-Agent": "Mozilla/5.0",
+            "Accept": "application/json, text/plain, */*",
+            "Referer": "https://app.velogicfit.com/frame-comparison"
+        }
+
+        resp = requests.get(
+            search_url,
+            params={"search": f"{brand} {model}", "page": 1, "pageSize": 5},
+            headers=headers,
+            timeout=15
+        )
+        logger.info(f"Frame search status: {resp.status_code}")
+        logger.info(f"Frame search response: {resp.text[:500]}")
+
+        if resp.status_code == 200:
+            data_json = resp.json()
+            # 嘗試各種可能的 response 格式
+            items = (
+                data_json if isinstance(data_json, list)
+                else data_json.get("data", data_json.get("items", data_json.get("frames", [])))
+            )
+
+            if items:
+                first = items[0]
+                fm    = first.get("modelCode") or first.get("code") or first.get("id") or ""
+                geos  = first.get("geometries") or first.get("frameGeometries") or []
+
+                fg = ""
+                for g in geos:
+                    s = g.get("size") or g.get("sizeName") or ""
+                    if s.upper() == size.upper():
+                        fg = g.get("code") or g.get("id") or ""
+                        break
+                if not fg and geos:
+                    fg = geos[0].get("code") or geos[0].get("id") or ""
+
+                if fm and fg:
+                    return _fetch_bar_values(fm, fg, stem_length, stem_angle, spacer, headers)
+
+        return {"error": "無法取得車款資料，請確認品牌與車款名稱是否正確"}
+
+    except Exception as e:
+        logger.error(f"URL method failed: {e}")
+        return {"error": str(e)[:150]}
+
+
+def _fetch_bar_values(fm, fg, sl, sa, sp, headers) -> dict:
+    """用已知的 frame code 取得 Bar X/Y"""
+    try:
+        url = "https://app.velogicfit.com/api/frame/position"
+        resp = requests.get(
+            url,
+            params={"fm": fm, "fg": fg, "sl": sl, "sa": sa, "sp": sp},
+            headers=headers,
+            timeout=15
+        )
+        logger.info(f"Position API status: {resp.status_code}, body: {resp.text[:300]}")
+
+        if resp.status_code == 200:
+            r    = resp.json()
+            barx = str(r.get("barX") or r.get("bar_x") or r.get("Bar X") or "")
+            bary = str(r.get("barY") or r.get("bar_y") or r.get("Bar Y") or "")
+            if barx and bary:
+                return {"bar_x": barx, "bar_y": bary}
+
+        return {"error": "計算結果取得失敗，請稍後再試"}
+
+    except Exception as e:
+        return {"error": str(e)[:150]}
+
+
+# ==========================================
+# 解析車款輸入
+# ==========================================
 def _parse_bike(text):
     parts = text.strip().split()
     if len(parts) < 3: return None
@@ -367,164 +657,21 @@ def _bdisp(bike):
     return f"{bike['brand']} {bike['model']}{year} ({bike['size']})"
 
 # ==========================================
-# Playwright：VelogicFit
-# ==========================================
-def _run_velogicfit(data):
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            page    = browser.new_page(viewport={"width": 1920, "height": 1080})
-            page.goto("https://app.velogicfit.com/frame-comparison", timeout=60000)
-            page.wait_for_load_state("networkidle", timeout=30000)
-            page.wait_for_timeout(2000)
-            search = page.locator("input.sf-dropdown-input").first
-            search.click()
-            search.fill(f"{data['brand']} {data['model']}")
-            page.wait_for_timeout(2000)
-            sug = page.locator("li.e-list-item").first
-            if sug.is_visible(): sug.click()
-            else: search.press("Enter")
-            page.wait_for_timeout(1500)
-            _set_combo(page, 0, data["size"]); page.wait_for_timeout(800)
-            _set_combo(page, 1, f"{data['stem_length']}mm"); page.wait_for_timeout(500)
-            _set_combo(page, 2, f"{data['stem_angle']}°"); page.wait_for_timeout(500)
-            _set_combo(page, 3, f"{data['spacer']}mm"); page.wait_for_timeout(2000)
-            bar_x, bar_y = _extract_bars(page)
-            browser.close()
-            if not bar_x or not bar_y:
-                return {"error": "找不到 Bar X / Bar Y，請確認車款及尺寸"}
-            return {"bar_x": bar_x, "bar_y": bar_y}
-    except Exception as e:
-        logger.error(f"VelogicFit error: {e}", exc_info=True)
-        return {"error": str(e)[:200]}
-
-def _set_combo(page, index, value):
-    try:
-        inp = page.locator('[role="combobox"]').nth(index).locator("input").first
-        inp.click(); inp.fill(value); page.wait_for_timeout(400)
-        item = page.locator("li.e-list-item").first
-        if item.is_visible(): item.click()
-        else: inp.press("Enter")
-    except Exception as e:
-        logger.warning(f"Combo {index} failed: {e}")
-
-def _extract_bars(page):
-    try:
-        r = page.evaluate("""() => {
-            const out = {};
-            Array.from(document.querySelectorAll('td'))
-                 .filter(td => ['Bar X','Bar Y'].includes(td.textContent.trim()))
-                 .forEach(td => {
-                     const vals = Array.from(td.closest('tr').querySelectorAll('td'))
-                                      .slice(1).map(c=>c.textContent.trim())
-                                      .filter(t=>/^\\d+$/.test(t));
-                     if (vals.length) out[td.textContent.trim()] = vals[0];
-                 });
-            return out;
-        }""")
-        return r.get("Bar X",""), r.get("Bar Y","")
-    except: return "", ""
-
-# ==========================================
-# Playwright：BikeInsights
-# ==========================================
-def _run_bikeinsights(bike1, bike2, user_id):
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            page    = browser.new_page(viewport={"width": 1200, "height": 780})
-            page.goto("https://bikeinsights.com/compare", timeout=60000)
-            page.wait_for_load_state("networkidle", timeout=30000)
-            page.wait_for_timeout(2000)
-            if not _bi_pick(page, bike1):
-                browser.close(); return {"error": f"找不到 {_bdisp(bike1)}"}
-            page.wait_for_timeout(2000)
-            if not _bi_pick(page, bike2):
-                browser.close(); return {"error": f"找不到 {_bdisp(bike2)}"}
-            page.wait_for_timeout(3000)
-            img_path = _bi_screenshot(page, user_id)
-            browser.close()
-            if not img_path: return {"error": "截圖失敗"}
-            return {"image_url": _upload_image(img_path), "image_path": img_path}
-    except Exception as e:
-        logger.error(f"BikeInsights error: {e}", exc_info=True)
-        return {"error": str(e)[:200]}
-
-def _bi_pick(page, bike):
-    page.evaluate("""() => {
-        const b = Array.from(document.querySelectorAll('button'))
-                       .find(b => b.textContent.trim().includes('Choose Bike'));
-        if (b) b.click();
-    }""")
-    page.wait_for_timeout(1500)
-    search = page.locator('input[placeholder="Search bikes"]')
-    search.click(); search.fill(f"{bike['brand']} {bike['model']}"); page.wait_for_timeout(500)
-    try: page.locator('button:has(svg)').last.click()
-    except: search.press("Enter")
-    page.wait_for_timeout(2500)
-    anchors = page.locator("a"); year = bike.get("year",""); size = bike["size"]
-    for i in range(anchors.count()):
-        try:
-            a = anchors.nth(i)
-            if a.inner_text(timeout=300).strip() != size: continue
-            if year:
-                if year not in a.evaluate("el => el.closest('div')?.textContent || ''"): continue
-            a.click(); page.wait_for_timeout(2000)
-            if "geometries=" in page.url: return True
-        except: continue
-    for i in range(anchors.count()):
-        try:
-            a = anchors.nth(i)
-            if a.inner_text(timeout=300).strip() == size:
-                a.click(); page.wait_for_timeout(2000)
-                return "geometries=" in page.url
-        except: continue
-    return False
-
-def _bi_screenshot(page, user_id):
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png", prefix=f"bi_{user_id}_")
-    path = tmp.name; tmp.close()
-    try:
-        s = page.locator("text=BIKE-ON-BIKE").locator("xpath=ancestor::div[3]").first
-        if s.is_visible(): s.screenshot(path=path); _image_cache[os.path.basename(path)] = path; return path
-    except: pass
-    page.screenshot(path=path, clip={"x": 280, "y": 0, "width": 760, "height": 430})
-    _image_cache[os.path.basename(path)] = path; return path
-
-def _upload_image(image_path):
-    if IMGUR_CLIENT_ID:
-        try:
-            with open(image_path,"rb") as f: img_b64 = base64.b64encode(f.read()).decode()
-            data = urllib.parse.urlencode({"image": img_b64, "type":"base64"}).encode()
-            req  = urllib.request.Request("https://api.imgur.com/3/image", data=data,
-                                          headers={"Authorization": f"Client-ID {IMGUR_CLIENT_ID}"})
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                return json.loads(resp.read())["data"]["link"].replace("http://","https://")
-        except Exception as e: logger.error(f"Imgur upload failed: {e}")
-    if BASE_URL:
-        fname = os.path.basename(image_path); _image_cache[fname] = image_path
-        return f"{BASE_URL.rstrip('/')}/img/{fname}"
-    return ""
-
-# ==========================================
 # 路由
 # ==========================================
-@app.route("/img/<filename>")
-def serve_image(filename):
-    path = _image_cache.get(filename)
-    if not path or not os.path.exists(path): abort(404)
-    return send_file(path, mimetype="image/png")
-
 @app.route("/callback", methods=['POST'])
 def callback():
     signature = request.headers['X-Line-Signature']
     body      = request.get_data(as_text=True)
-    try: handler.handle(body, signature)
-    except InvalidSignatureError: abort(400)
+    try:
+        handler.handle(body, signature)
+    except InvalidSignatureError:
+        abort(400)
     return 'OK'
 
 @app.route("/", methods=['GET'])
-def home(): return "Orange Fruit LINE Bot is running! 🍊"
+def home():
+    return "Orange Fruit LINE Bot is running! 🍊"
 
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event):
@@ -535,13 +682,17 @@ def handle_message(event):
     # 車架幾何流程進行中 → 優先處理
     if user_id in geo_states:
         mode = geo_states[user_id].get("mode")
-        if mode == "velogicfit":   handle_velogicfit_flow(event, user_id, user_text)
-        elif mode == "bikeinsights": handle_bikeinsights_flow(event, user_id, user_text)
+        if mode == "velogicfit":
+            handle_velogicfit_flow(event, user_id, user_text)
+        elif mode == "bikeinsights":
+            handle_bikeinsights_flow(event, user_id, user_text)
         return
 
     # 一般指令 or AI 對話
-    if user_text.startswith('#'): handle_rich_menu_command(event, user_text)
-    else: handle_ai_conversation(event, user_text)
+    if user_text.startswith('#'):
+        handle_rich_menu_command(event, user_text)
+    else:
+        handle_ai_conversation(event, user_text)
 
 # ==========================================
 # 啟動
