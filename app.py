@@ -33,21 +33,14 @@ from linebot.v3.webhooks import MessageEvent, TextMessageContent
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv('LINE_CHANNEL_ACCESS_TOKEN')
 LINE_CHANNEL_SECRET       = os.getenv('LINE_CHANNEL_SECRET')
 GEMINI_API_KEY            = os.getenv('GEMINI_API_KEY')
-NOTIFY_GROUP_ID           = os.getenv('NOTIFY_GROUP_ID', '')   # C 開頭的群組 ID
-OWNER_USER_ID             = os.getenv('OWNER_USER_ID', '')     # U 開頭的你的 User ID
+NOTIFY_GROUP_ID           = os.getenv('NOTIFY_GROUP_ID', '')
+OWNER_USER_ID             = os.getenv('OWNER_USER_ID', '')
 
-# 服務時間：台灣時間 09:00 - 12:00
 SERVICE_START = 9
 SERVICE_END   = 12
-TZ_OFFSET     = 8   # UTC+8
+TZ_OFFSET     = 8
 
-# ==========================================
-# VelogicFit 車款代碼對照表
-# 格式：fm=品牌-車款-年份, fg=fm-尺寸
-# 規律：MER-REA-26 = Merida Reacto 2026
-# ==========================================
 FRAME_CODE_MAP = {
-    # Merida
     ("merida", "reacto", "2026"): "MER-REA-26",
     ("merida", "reacto", "2025"): "MER-REA-25",
     ("merida", "reacto", "2024"): "MER-REA-24",
@@ -57,7 +50,6 @@ FRAME_CODE_MAP = {
     ("merida", "scultura", "2024"): "MER-SCU-24",
     ("merida", "scultura team", "2026"): "MER-SCT-26",
     ("merida", "mission cx", "2026"): "MER-MCX-26",
-    # Giant
     ("giant", "tcr advanced", "2026"): "GIA-TCR-26",
     ("giant", "tcr advanced", "2025"): "GIA-TCR-25",
     ("giant", "tcr advanced", "2024"): "GIA-TCR-24",
@@ -66,56 +58,44 @@ FRAME_CODE_MAP = {
     ("giant", "propel advanced", "2025"): "GIA-PRO-25",
     ("giant", "defy advanced", "2026"): "GIA-DEF-26",
     ("giant", "defy advanced", "2025"): "GIA-DEF-25",
-    # Trek
     ("trek", "madone slr", "2026"): "TRE-MAS-26",
     ("trek", "madone slr", "2025"): "TRE-MAS-25",
     ("trek", "emonda slr", "2026"): "TRE-EMS-26",
     ("trek", "emonda slr", "2025"): "TRE-EMS-25",
     ("trek", "domane slr", "2026"): "TRE-DOS-26",
     ("trek", "domane slr", "2025"): "TRE-DOS-25",
-    # Specialized
     ("specialized", "tarmac sl8", "2026"): "SPE-TS8-26",
     ("specialized", "tarmac sl8", "2025"): "SPE-TS8-25",
     ("specialized", "venge", "2024"): "SPE-VEN-24",
     ("specialized", "aethos", "2026"): "SPE-AET-26",
-    # Canyon
     ("canyon", "aeroad", "2026"): "CAN-AER-26",
     ("canyon", "aeroad", "2025"): "CAN-AER-25",
     ("canyon", "ultimate", "2026"): "CAN-ULT-26",
     ("canyon", "ultimate", "2025"): "CAN-ULT-25",
     ("canyon", "endurace", "2026"): "CAN-END-26",
-    # Cervélo
     ("cervelo", "s5", "2026"): "CER-S05-26",
     ("cervelo", "s5", "2025"): "CER-S05-25",
     ("cervelo", "r5", "2026"): "CER-R05-26",
     ("cervelo", "caledonia", "2026"): "CER-CAL-26",
-    # Pinarello
     ("pinarello", "dogma f", "2026"): "PIN-DOF-26",
     ("pinarello", "dogma f", "2025"): "PIN-DOF-25",
     ("pinarello", "prince", "2026"): "PIN-PRI-26",
-    # Colnago
     ("colnago", "v4rs", "2026"): "COL-V4R-26",
     ("colnago", "v4rs", "2025"): "COL-V4R-25",
-    # Scott
     ("scott", "addict rc", "2026"): "SCO-ARC-26",
     ("scott", "addict rc", "2025"): "SCO-ARC-25",
     ("scott", "foil rc", "2026"): "SCO-FRC-26",
-    # BMC
     ("bmc", "teammachine slr", "2026"): "BMC-TMS-26",
     ("bmc", "teammachine slr", "2025"): "BMC-TMS-25",
-    # Orbea
     ("orbea", "orca aero", "2026"): "ORB-OAR-26",
     ("orbea", "orca", "2026"): "ORB-ORC-26",
-    # Factor
-    
     ("factor", "One", "2026"): "FAC-ONE25",
     ("factor", "O2", "2026"): "FAC-O2-26",
-
 }
 
-# ==========================================
-# 初始化
-# ==========================================
+# VelogicFit 完整 URL（含 app. subdomain）
+VELOGICFIT_BASE = "https://app.velogicfit.com/frame-comparison"
+
 genai.configure(api_key=GEMINI_API_KEY)
 configuration = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
 handler       = WebhookHandler(LINE_CHANNEL_SECRET)
@@ -259,13 +239,11 @@ def add_count(user_id):
     user_daily_count[user_id]["count"] += 1
 
 def is_service_hours():
-    """判斷目前是否在服務時間（台灣時間 09:00-12:00）"""
     utc_now  = datetime.datetime.utcnow()
     tw_now   = utc_now + datetime.timedelta(hours=TZ_OFFSET)
     return SERVICE_START <= tw_now.hour < SERVICE_END
 
 def _reply(reply_token, messages):
-    """回覆訊息"""
     try:
         with ApiClient(configuration) as api_client:
             MessagingApi(api_client).reply_message(
@@ -275,7 +253,6 @@ def _reply(reply_token, messages):
         logger.error(f"Reply failed: {e}")
 
 def _push(user_id, messages):
-    """推播訊息給指定用戶或群組"""
     try:
         with ApiClient(configuration) as api_client:
             MessagingApi(api_client).push_message(
@@ -287,18 +264,12 @@ def _push(user_id, messages):
 def _text(msg): return TextMessage(text=msg)
 def _img(url):  return ImageMessage(original_content_url=url, preview_image_url=url)
 
-# ==========================================
-# 通知老闆（推播到群組）
-# ==========================================
 def notify_owner(bike1: dict, bike2: dict, requester_user_id: str):
-    """有客人需要車架對照圖時，通知老闆群組"""
     if not NOTIFY_GROUP_ID:
         logger.warning("NOTIFY_GROUP_ID 未設定，無法發送通知")
         return
-
     tw_now = datetime.datetime.utcnow() + datetime.timedelta(hours=TZ_OFFSET)
     time_str = tw_now.strftime("%m/%d %H:%M")
-
     msg = (
         f"📐 車架對照圖需求\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
@@ -314,9 +285,6 @@ def notify_owner(bike1: dict, bike2: dict, requester_user_id: str):
     _push(NOTIFY_GROUP_ID, [_text(msg)])
     logger.info(f"已通知群組：{NOTIFY_GROUP_ID}")
 
-# ==========================================
-# 原有功能：Rich Menu & AI 對話
-# ==========================================
 def handle_rich_menu_command(event, command):
     if command not in IMAGE_DATABASE:
         if command in ("#車架幾何", "#車架對照"):
@@ -338,8 +306,6 @@ def handle_ai_conversation(event, user_text):
         )]); return
 
     add_count(user_id)
-
-    # 先立即 reply「思考中」避免 token 過期
     _reply(event.reply_token, [_text("🤔 小橙正在思考中...")])
 
     if user_id not in conversation_history:
@@ -362,12 +328,8 @@ def handle_ai_conversation(event, user_text):
         if kw in user_text.lower():
             messages += [_img(u) for u in imgs[:2]]; break
 
-    # 用 push 發送實際回覆
     _push(user_id, messages)
 
-# ==========================================
-# 新功能：車架幾何
-# ==========================================
 def handle_geo_command(event, command):
     user_id = event.source.user_id
     geo_states.pop(user_id, None)
@@ -473,7 +435,6 @@ def handle_velogicfit_flow(event, user_id, text):
         link  = result.get("link", "")
 
         if bar_x and bar_y:
-            # 成功取得數值
             _push(user_id, [_text(
                 f"📊 Handlebar Position\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
@@ -485,7 +446,6 @@ def handle_velogicfit_flow(event, user_id, text):
                 f"輸入 #車架幾何 查詢其他車款"
             )])
         elif link:
-            # 有連結但沒有數值，讓客人自己點
             _push(user_id, [_text(
                 f"🔗 已為您產生查詢連結\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
@@ -497,10 +457,6 @@ def handle_velogicfit_flow(event, user_id, text):
                 f"📌 開啟後請捲到「Handlebar position」區塊"
             )])
         else:
-            # 找不到車款，給 VelogicFit 搜索連結
-            search_link = (
-                f"https://app.velogicfit.com/frame-comparison"
-            )
             _push(user_id, [_text(
                 f"⚠️ 找不到此車款\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
@@ -508,7 +464,7 @@ def handle_velogicfit_flow(event, user_id, text):
                 f"車款：{data['model']}\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
                 f"請至以下網站手動搜尋：\n"
-                f"{search_link}\n\n"
+                f"{VELOGICFIT_BASE}\n\n"
                 f"💡 提示：請確認英文拼寫正確\n"
                 f"例如：Giant TCR Advanced / Specialized Tarmac"
             )])
@@ -544,9 +500,7 @@ def handle_bikeinsights_flow(event, user_id, text):
         data["bike2"] = parsed
         geo_states.pop(user_id, None)
 
-        # 判斷是否在服務時間
         if is_service_hours():
-            # 服務時間內：直接告知並通知老闆
             _reply(event.reply_token, [_text(
                 f"✅ 已收到需求\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
@@ -558,7 +512,6 @@ def handle_bikeinsights_flow(event, user_id, text):
             )])
             notify_owner(data["bike1"], data["bike2"], user_id)
         else:
-            # 非服務時間：告知時間並通知老闆
             _reply(event.reply_token, [_text(
                 f"✅ 已收到您的對照需求\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
@@ -573,12 +526,13 @@ def handle_bikeinsights_flow(event, user_id, text):
             notify_owner(data["bike1"], data["bike2"], user_id)
 
 # ==========================================
-# VelogicFit：產生查詢連結 + 嘗試 API
+# VelogicFit：產生查詢連結
 # ==========================================
 def _run_velogicfit_api(data: dict) -> dict:
     """
-    直接呼叫 VelogicFit 的 API 取得 Bar X / Bar Y
-    URL 格式：?fm=<model>&fg=<frame>&sl=<stem_len>&sa=<stem_angle>&sp=<spacer>
+    產生 VelogicFit 帶完整參數的連結（含 &hb=&hm=&hw= 才會顯示 Handlebar X/Y）
+    URL 格式：https://app.velogicfit.com/frame-comparison
+              ?fm=MER-REA-26&fg=MER-REA-26-S&sl=100&sa=-8&sp=20&hb=&hm=&hw=
     """
     brand       = data["brand"]
     model       = data["model"]
@@ -590,38 +544,34 @@ def _run_velogicfit_api(data: dict) -> dict:
 
     logger.info(f"VelogicFit: {brand} {model} {year} {size} sl={stem_length} sa={stem_angle} sp={spacer}")
 
-    # VelogicFit 使用 Blazor + SignalR，無法直接用 requests 取得數值
-    # 從代碼對照表找到 fm/fg 代碼，直接產生帶參數的連結
+    # 1. 查代碼對照表（完全匹配）
+    key      = (brand.lower(), model.lower(), year)
+    fm_code  = FRAME_CODE_MAP.get(key, "")
 
-    # 1. 先查對照表（完全匹配）
-    year_short = year[-2:] if year and len(year) >= 2 else ""
-    key = (brand.lower(), model.lower(), year)
-    fm_code = FRAME_CODE_MAP.get(key, "")
-
-    # 2. 對照表找不到，嘗試自動生成代碼
-    if not fm_code and year_short:
-        fm_code = _guess_frame_code(brand, model, year_short)
+    # 2. 對照表找不到 → 嘗試自動生成
+    if not fm_code:
+        year_short = year[-2:] if year and len(year) >= 2 else ""
+        if year_short:
+            fm_code = _guess_frame_code(brand, model, year_short)
 
     if fm_code:
         fg_code = f"{fm_code}-{size}"
+        # ✅ 修正：加上 &hb=&hm=&hw= 才能顯示 Handlebar X/Y 值
         link = (
-            f"https://app.velogicfit.com/frame-comparison"
+            f"{VELOGICFIT_BASE}"
             f"?fm={fm_code}&fg={fg_code}"
             f"&sl={stem_length}&sa={stem_angle}&sp={spacer}"
+            f"&hb=&hm=&hw="
         )
         logger.info(f"Generated link: {link}")
         return {"link": link, "fm": fm_code, "fg": fg_code}
 
-    # 3. 完全找不到，回傳空
+    # 3. 找不到代碼
     return {"link": None}
 
 
 def _guess_frame_code(brand: str, model: str, year_short: str) -> str:
-    """
-    嘗試自動生成 VelogicFit 車款代碼
-    規律：品牌3碼-車款3碼-年份2碼
-    例如：Merida Reacto 2026 → MER-REA-26
-    """
+    """嘗試自動生成 VelogicFit 車款代碼（品牌3碼-車款3碼-年份2碼）"""
     brand_map = {
         "merida": "MER", "giant": "GIA", "trek": "TRE",
         "specialized": "SPE", "canyon": "CAN", "cervelo": "CER",
@@ -631,103 +581,12 @@ def _guess_frame_code(brand: str, model: str, year_short: str) -> str:
         "cannondale": "CAN", "bianchi": "BIA", "ridley": "RID",
         "focus": "FOC", "rose": "ROS", "cube": "CUB",
     }
-    brand_code = brand_map.get(brand.lower(), brand[:3].upper())
-
-    # 車款名取前3個字母（去掉空格和特殊字符）
+    brand_code  = brand_map.get(brand.lower(), brand[:3].upper())
     model_clean = re.sub(r'[^a-zA-Z0-9]', '', model).upper()
     model_code  = model_clean[:3]
-
     if len(model_code) < 3:
         return ""
-
     return f"{brand_code}-{model_code}-{year_short}"
-
-
-def _velogicfit_url_method(data: dict) -> dict:
-    """
-    備用方式：直接 GET 頁面 HTML 並 parse Bar X / Bar Y
-    （模擬已知 URL 格式 ?fm=MER-REA-26&fg=MER-REA-26-S&sl=100&sa=-8&sp=20）
-    """
-    brand       = data["brand"]
-    model       = data["model"]
-    size        = data["size"]
-    stem_length = data["stem_length"]
-    stem_angle  = data["stem_angle"]
-    spacer      = data["spacer"]
-
-    try:
-        # 先搜索取得正確的 frame code
-        search_url = "https://app.velogicfit.com/api/frames"
-        headers = {
-            "User-Agent": "Mozilla/5.0",
-            "Accept": "application/json, text/plain, */*",
-            "Referer": "https://app.velogicfit.com/frame-comparison"
-        }
-
-        resp = requests.get(
-            search_url,
-            params={"search": f"{brand} {model}", "page": 1, "pageSize": 5},
-            headers=headers,
-            timeout=15
-        )
-        logger.info(f"Frame search status: {resp.status_code}")
-        logger.info(f"Frame search response: {resp.text[:500]}")
-
-        if resp.status_code == 200:
-            data_json = resp.json()
-            # 嘗試各種可能的 response 格式
-            items = (
-                data_json if isinstance(data_json, list)
-                else data_json.get("data", data_json.get("items", data_json.get("frames", [])))
-            )
-
-            if items:
-                first = items[0]
-                fm    = first.get("modelCode") or first.get("code") or first.get("id") or ""
-                geos  = first.get("geometries") or first.get("frameGeometries") or []
-
-                fg = ""
-                for g in geos:
-                    s = g.get("size") or g.get("sizeName") or ""
-                    if s.upper() == size.upper():
-                        fg = g.get("code") or g.get("id") or ""
-                        break
-                if not fg and geos:
-                    fg = geos[0].get("code") or geos[0].get("id") or ""
-
-                if fm and fg:
-                    return _fetch_bar_values(fm, fg, stem_length, stem_angle, spacer, headers)
-
-        return {"error": "無法取得車款資料，請確認品牌與車款名稱是否正確"}
-
-    except Exception as e:
-        logger.error(f"URL method failed: {e}")
-        return {"error": str(e)[:150]}
-
-
-def _fetch_bar_values(fm, fg, sl, sa, sp, headers) -> dict:
-    """用已知的 frame code 取得 Bar X/Y"""
-    try:
-        url = "https://app.velogicfit.com/api/frame/position"
-        resp = requests.get(
-            url,
-            params={"fm": fm, "fg": fg, "sl": sl, "sa": sa, "sp": sp},
-            headers=headers,
-            timeout=15
-        )
-        logger.info(f"Position API status: {resp.status_code}, body: {resp.text[:300]}")
-
-        if resp.status_code == 200:
-            r    = resp.json()
-            barx = str(r.get("barX") or r.get("bar_x") or r.get("Bar X") or "")
-            bary = str(r.get("barY") or r.get("bar_y") or r.get("Bar Y") or "")
-            if barx and bary:
-                return {"bar_x": barx, "bar_y": bary}
-
-        return {"error": "計算結果取得失敗，請稍後再試"}
-
-    except Exception as e:
-        return {"error": str(e)[:150]}
 
 
 # ==========================================
@@ -772,7 +631,6 @@ def handle_message(event):
     group_id  = getattr(event.source, "group_id", None)
     app.logger.info(f"收到訊息: {user_text} | user={user_id} | group={group_id}")
 
-    # 車架幾何流程進行中 → 優先處理
     if user_id in geo_states:
         mode = geo_states[user_id].get("mode")
         if mode == "velogicfit":
@@ -781,7 +639,6 @@ def handle_message(event):
             handle_bikeinsights_flow(event, user_id, user_text)
         return
 
-    # 一般指令 or AI 對話
     if user_text.startswith('#'):
         handle_rich_menu_command(event, user_text)
     else:
