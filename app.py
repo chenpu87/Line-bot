@@ -42,6 +42,73 @@ SERVICE_END   = 12
 TZ_OFFSET     = 8   # UTC+8
 
 # ==========================================
+# VelogicFit 車款代碼對照表
+# 格式：fm=品牌-車款-年份, fg=fm-尺寸
+# 規律：MER-REA-26 = Merida Reacto 2026
+# ==========================================
+FRAME_CODE_MAP = {
+    # Merida
+    ("merida", "reacto", "2026"): "MER-REA-26",
+    ("merida", "reacto", "2025"): "MER-REA-25",
+    ("merida", "reacto", "2024"): "MER-REA-24",
+    ("merida", "reacto", "2023"): "MER-REA-23",
+    ("merida", "scultura", "2026"): "MER-SCU-26",
+    ("merida", "scultura", "2025"): "MER-SCU-25",
+    ("merida", "scultura", "2024"): "MER-SCU-24",
+    ("merida", "scultura team", "2026"): "MER-SCT-26",
+    ("merida", "mission cx", "2026"): "MER-MCX-26",
+    # Giant
+    ("giant", "tcr advanced", "2026"): "GIA-TCR-26",
+    ("giant", "tcr advanced", "2025"): "GIA-TCR-25",
+    ("giant", "tcr advanced", "2024"): "GIA-TCR-24",
+    ("giant", "tcr advanced sl", "2026"): "GIA-TCS-26",
+    ("giant", "propel advanced", "2026"): "GIA-PRO-26",
+    ("giant", "propel advanced", "2025"): "GIA-PRO-25",
+    ("giant", "defy advanced", "2026"): "GIA-DEF-26",
+    ("giant", "defy advanced", "2025"): "GIA-DEF-25",
+    # Trek
+    ("trek", "madone slr", "2026"): "TRE-MAS-26",
+    ("trek", "madone slr", "2025"): "TRE-MAS-25",
+    ("trek", "emonda slr", "2026"): "TRE-EMS-26",
+    ("trek", "emonda slr", "2025"): "TRE-EMS-25",
+    ("trek", "domane slr", "2026"): "TRE-DOS-26",
+    ("trek", "domane slr", "2025"): "TRE-DOS-25",
+    # Specialized
+    ("specialized", "tarmac sl8", "2026"): "SPE-TS8-26",
+    ("specialized", "tarmac sl8", "2025"): "SPE-TS8-25",
+    ("specialized", "venge", "2024"): "SPE-VEN-24",
+    ("specialized", "aethos", "2026"): "SPE-AET-26",
+    # Canyon
+    ("canyon", "aeroad", "2026"): "CAN-AER-26",
+    ("canyon", "aeroad", "2025"): "CAN-AER-25",
+    ("canyon", "ultimate", "2026"): "CAN-ULT-26",
+    ("canyon", "ultimate", "2025"): "CAN-ULT-25",
+    ("canyon", "endurace", "2026"): "CAN-END-26",
+    # Cervélo
+    ("cervelo", "s5", "2026"): "CER-S05-26",
+    ("cervelo", "s5", "2025"): "CER-S05-25",
+    ("cervelo", "r5", "2026"): "CER-R05-26",
+    ("cervelo", "caledonia", "2026"): "CER-CAL-26",
+    # Pinarello
+    ("pinarello", "dogma f", "2026"): "PIN-DOF-26",
+    ("pinarello", "dogma f", "2025"): "PIN-DOF-25",
+    ("pinarello", "prince", "2026"): "PIN-PRI-26",
+    # Colnago
+    ("colnago", "v4rs", "2026"): "COL-V4R-26",
+    ("colnago", "v4rs", "2025"): "COL-V4R-25",
+    # Scott
+    ("scott", "addict rc", "2026"): "SCO-ARC-26",
+    ("scott", "addict rc", "2025"): "SCO-ARC-25",
+    ("scott", "foil rc", "2026"): "SCO-FRC-26",
+    # BMC
+    ("bmc", "teammachine slr", "2026"): "BMC-TMS-26",
+    ("bmc", "teammachine slr", "2025"): "BMC-TMS-25",
+    # Orbea
+    ("orbea", "orca aero", "2026"): "ORB-OAR-26",
+    ("orbea", "orca", "2026"): "ORB-ORC-26",
+}
+
+# ==========================================
 # 初始化
 # ==========================================
 genai.configure(api_key=GEMINI_API_KEY)
@@ -385,13 +452,13 @@ def handle_velogicfit_flow(event, user_id, text):
             f"✅ 確認資料\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"品牌：{data['brand']}\n"
-            f"車款：{data['model']}\n"
+            f"車款：{data['model']} ({data.get('year', '')})\n"
             f"尺寸：{data['size']}\n"
             f"龍頭長度：{data['stem_length']}mm\n"
             f"龍頭角度：{data['stem_angle']}°\n"
             f"墊片高度：{data['spacer']}mm\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"⏳ 計算中，請稍候（約 5 秒）..."
+            f"⏳ 計算中，請稍候..."
         )])
 
         result = _run_velogicfit_api(data)
@@ -510,83 +577,65 @@ def _run_velogicfit_api(data: dict) -> dict:
     """
     brand       = data["brand"]
     model       = data["model"]
+    year        = data.get("year", "")
     size        = data["size"]
     stem_length = data["stem_length"]
     stem_angle  = data["stem_angle"]
     spacer      = data["spacer"]
 
-    logger.info(f"VelogicFit: {brand} {model} {size} sl={stem_length} sa={stem_angle} sp={spacer}")
+    logger.info(f"VelogicFit: {brand} {model} {year} {size} sl={stem_length} sa={stem_angle} sp={spacer}")
 
     # VelogicFit 使用 Blazor + SignalR，無法直接用 requests 取得數值
-    # 改為嘗試 Frame Lookup API 取得車款代碼，再產生查詢連結給用戶
-    try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Accept": "application/json, text/plain, */*",
-            "Referer": "https://app.velogicfit.com/frame-comparison"
-        }
+    # 從代碼對照表找到 fm/fg 代碼，直接產生帶參數的連結
 
-        # 嘗試 Frame Lookup API
-        lookup_resp = requests.get(
-            "https://app.velogicfit.com/api/framelookup",
-            params={"search": f"{brand} {model}", "pageSize": 5},
-            headers=headers,
-            timeout=10
+    # 1. 先查對照表（完全匹配）
+    year_short = year[-2:] if year and len(year) >= 2 else ""
+    key = (brand.lower(), model.lower(), year)
+    fm_code = FRAME_CODE_MAP.get(key, "")
+
+    # 2. 對照表找不到，嘗試自動生成代碼
+    if not fm_code and year_short:
+        fm_code = _guess_frame_code(brand, model, year_short)
+
+    if fm_code:
+        fg_code = f"{fm_code}-{size}"
+        link = (
+            f"https://app.velogicfit.com/frame-comparison"
+            f"?fm={fm_code}&fg={fg_code}"
+            f"&sl={stem_length}&sa={stem_angle}&sp={spacer}"
         )
-        logger.info(f"Frame lookup: {lookup_resp.status_code} - {lookup_resp.text[:200]}")
+        logger.info(f"Generated link: {link}")
+        return {"link": link, "fm": fm_code, "fg": fg_code}
 
-        fm_code = ""
-        fg_code = ""
+    # 3. 完全找不到，回傳空
+    return {"link": None}
 
-        if lookup_resp.status_code == 200:
-            try:
-                items = lookup_resp.json()
-                if isinstance(items, list) and items:
-                    first = items[0]
-                    fm_code = first.get("modelCode") or first.get("code") or ""
-                    geos = first.get("geometries") or []
-                    for g in geos:
-                        if (g.get("size") or "").upper() == size.upper():
-                            fg_code = g.get("code") or ""
-                            break
-                    if not fg_code and geos:
-                        fg_code = geos[0].get("code") or ""
-            except Exception:
-                pass
 
-        if fm_code and fg_code:
-            # 有代碼！嘗試取得計算結果
-            pos_resp = requests.get(
-                "https://app.velogicfit.com/api/frameposition",
-                params={"fm": fm_code, "fg": fg_code, "sl": stem_length, "sa": stem_angle, "sp": spacer},
-                headers=headers,
-                timeout=10
-            )
-            logger.info(f"Position API: {pos_resp.status_code} - {pos_resp.text[:200]}")
-            if pos_resp.status_code == 200:
-                try:
-                    r = pos_resp.json()
-                    bx = str(r.get("barX") or r.get("bar_x") or "")
-                    by = str(r.get("barY") or r.get("bar_y") or "")
-                    if bx and by:
-                        return {"bar_x": bx, "bar_y": by}
-                except Exception:
-                    pass
+def _guess_frame_code(brand: str, model: str, year_short: str) -> str:
+    """
+    嘗試自動生成 VelogicFit 車款代碼
+    規律：品牌3碼-車款3碼-年份2碼
+    例如：Merida Reacto 2026 → MER-REA-26
+    """
+    brand_map = {
+        "merida": "MER", "giant": "GIA", "trek": "TRE",
+        "specialized": "SPE", "canyon": "CAN", "cervelo": "CER",
+        "pinarello": "PIN", "colnago": "COL", "scott": "SCO",
+        "bmc": "BMC", "orbea": "ORB", "wilier": "WIL",
+        "look": "LOO", "time": "TIM", "factor": "FAC",
+        "cannondale": "CAN", "bianchi": "BIA", "ridley": "RID",
+        "focus": "FOC", "rose": "ROS", "cube": "CUB",
+    }
+    brand_code = brand_map.get(brand.lower(), brand[:3].upper())
 
-            # 有代碼但取不到數值，產生直接連結
-            link = (
-                f"https://app.velogicfit.com/frame-comparison"
-                f"?fm={fm_code}&fg={fg_code}"
-                f"&sl={stem_length}&sa={stem_angle}&sp={spacer}"
-            )
-            return {"link": link, "fm": fm_code, "fg": fg_code}
+    # 車款名取前3個字母（去掉空格和特殊字符）
+    model_clean = re.sub(r'[^a-zA-Z0-9]', '', model).upper()
+    model_code  = model_clean[:3]
 
-        # 沒有代碼，回傳搜索連結
-        return {"link": None}
+    if len(model_code) < 3:
+        return ""
 
-    except Exception as e:
-        logger.error(f"VelogicFit error: {e}")
-        return {"link": None}
+    return f"{brand_code}-{model_code}-{year_short}"
 
 
 def _velogicfit_url_method(data: dict) -> dict:
