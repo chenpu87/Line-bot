@@ -106,6 +106,11 @@ FRAME_CODE_MAP = {
     # Orbea
     ("orbea", "orca aero", "2026"): "ORB-OAR-26",
     ("orbea", "orca", "2026"): "ORB-ORC-26",
+    # Factor
+    
+    ("factor", "One", "2026"): "FAC-ONE25",
+    ("factor", "O2", "2026"): "FAC-O2-26",
+
 }
 
 # ==========================================
