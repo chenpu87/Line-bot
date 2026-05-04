@@ -588,6 +588,9 @@ def handle_bikeinsights_flow(event, user_id, text):
 def _scrape_bar_values(url: str) -> dict:
     """
     用 Playwright 開啟 VelogicFit 頁面，等待 Handlebar position 出現後抓值。
+    VelogicFit 結構確認：
+      <td class="row-heading"><span>Bar X</span></td>
+      <td class="row-value numeric-value">516</td>
     回傳 {"bar_x": "xxx", "bar_y": "xxx"} 或 {"error": "..."}
     """
     if not PLAYWRIGHT_AVAILABLE:
@@ -596,56 +599,69 @@ def _scrape_bar_values(url: str) -> dict:
 
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
-            page    = browser.new_page()
-            page.goto(url, timeout=30000)
+            browser = p.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"]
+            )
+            page = browser.new_page(viewport={"width": 1280, "height": 900})
+            page.goto(url, timeout=45000)
 
-            # 等待 Handlebar position 區塊渲染（最多 20 秒）
+            # Blazor 需要 SignalR 連線才能渲染數值，等待至有數值出現
+            # 等待策略：等 td.numeric-value 出現且有數字內容（最多 30 秒）
             try:
-                page.wait_for_selector("text=Handlebar position", timeout=20000)
-                page.wait_for_timeout(2000)  # 等數值填入
+                page.wait_for_selector("td.numeric-value", timeout=30000)
+                # 再等 2 秒確保 Handlebar position 區塊也渲染完成
+                page.wait_for_timeout(3000)
             except PWTimeout:
                 browser.close()
-                return {"error": "timeout_waiting_for_handlebar"}
+                return {"error": "timeout_waiting_for_values"}
 
-            # 抓 Bar X / Bar Y 數值
-            # VelogicFit 的結構：label 旁邊是數值 td
-            bar_x = bar_y = ""
-            rows = page.query_selector_all("tr")
-            for row in rows:
-                text = row.inner_text()
-                if "Bar X" in text or "Handlebar X" in text:
-                    tds = row.query_selector_all("td")
-                    for td in tds:
-                        val = td.inner_text().strip()
-                        if re.match(r"^-?\d+\.?\d*$", val):
-                            bar_x = val; break
-                if "Bar Y" in text or "Handlebar Y" in text or "Stack" in text and "Handlebar" in text:
-                    tds = row.query_selector_all("td")
-                    for td in tds:
-                        val = td.inner_text().strip()
-                        if re.match(r"^-?\d+\.?\d*$", val):
-                            bar_y = val; break
-
-            # 備用：用頁面文字 parse
-            if not (bar_x and bar_y):
-                full_text = page.inner_text("body")
-                bx = re.search(r"Bar X[^\d-]*(-?\d+\.?\d*)", full_text)
-                by = re.search(r"Bar Y[^\d-]*(-?\d+\.?\d*)", full_text)
-                if bx: bar_x = bx.group(1)
-                if by: bar_y = by.group(1)
+            # 用 JavaScript 精確抓取 Bar X / Bar Y
+            # 確認的結構：td.row-heading > span 文字 = "Bar X"，同 tr 下 td.numeric-value = 數值
+            result = page.evaluate("""() => {
+                const out = {};
+                const tds = Array.from(document.querySelectorAll('td'));
+                tds.filter(td => {
+                    const span = td.querySelector('span');
+                    const text = span ? span.textContent.trim() : td.textContent.trim();
+                    return ['Bar X', 'Bar Y'].includes(text);
+                }).forEach(td => {
+                    const span = td.querySelector('span');
+                    const label = span ? span.textContent.trim() : td.textContent.trim();
+                    const tr = td.closest('tr');
+                    // 找同行的 numeric-value td
+                    const valTd = tr.querySelector('td.numeric-value');
+                    if (valTd) {
+                        out[label] = valTd.textContent.trim();
+                    } else {
+                        // 備用：找同行第二個 td 的純數字
+                        const cells = Array.from(tr.querySelectorAll('td'));
+                        for (let i = 1; i < cells.length; i++) {
+                            const v = cells[i].textContent.trim();
+                            if (/^-?[0-9]+(.[0-9]+)?$/.test(v)) {
+                                out[label] = v; break;
+                            }
+                        }
+                    }
+                });
+                return out;
+            }""")
 
             browser.close()
+            logger.info(f"Scraped values: {result}")
+
+            bar_x = result.get("Bar X", "")
+            bar_y = result.get("Bar Y", "")
 
             if bar_x and bar_y:
                 return {"bar_x": bar_x, "bar_y": bar_y}
             else:
-                logger.warning(f"Bar X/Y not found on page: {url}")
+                logger.warning(f"Bar X/Y not found. Got: {result}")
                 return {"error": "values_not_found"}
 
     except Exception as e:
-        logger.error(f"Playwright scrape error: {e}")
-        return {"error": str(e)[:100]}
+        logger.error(f"Playwright scrape error: {e}", exc_info=True)
+        return {"error": str(e)[:150]}
 
 
 def _run_velogicfit_api(data: dict) -> dict:
