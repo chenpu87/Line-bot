@@ -94,8 +94,7 @@ FRAME_CODE_MAP = {
     ("bmc", "teammachine slr", "2025"): "BMC-TMS-25",
     ("orbea", "orca aero", "2026"): "ORB-OAR-26",
     ("orbea", "orca", "2026"): "ORB-ORC-26",
-    ("factor", "one", "2026"): "FAC-ONE-26",
-    ("factor", "one", "2025"): "FAC-ONE25",
+    ("factor", "one", "2026"): "FAC-ONE25",
     ("factor", "o2", "2026"): "FAC-O2-26",
     ("factor", "o2", "2025"): "FAC-O2-25",
 }
@@ -118,6 +117,12 @@ geo_states: dict     = {}
 
 # 尺寸：自由輸入，不限制選項（各品牌格式不同）
 SPACER_OPTIONS     = ["10", "15", "20", "25", "30", "35", "40", "45"]
+# BikeInsights 尺寸選項（英文 + 數字都支援）
+SIZE_OPTIONS = ["XXS", "XS", "S", "M", "L", "XL",
+                "3XS", "2XS", "XS/S", "S/M", "M/L",
+                "44", "46", "47", "48", "49", "50",
+                "51", "52", "53", "54", "55", "56",
+                "57", "58", "59", "60", "61", "62"]
 STEM_LENGTH_OPTIONS = [str(x) for x in range(65, 155, 5)]  # 65-150mm 每 5mm
 
 SYSTEM_PROMPT = '''你是 Orange Fruit 橙實設定的專業運動助理，名字叫小橙特助。請用專業但親切的口吻回答，使用台灣繁體中文。
@@ -718,7 +723,9 @@ def _parse_bike(text):
     parts = text.strip().split()
     if len(parts) < 3: return None
     size = parts[-1].upper()
-    if size not in SIZE_OPTIONS: return None
+    # 接受英文尺寸(S/M/L)或數字尺寸(47/54/56/58)
+    if not (size in SIZE_OPTIONS or re.match(r"^\d{2,3}$", size)):
+        return None
     remaining = parts[:-1]; year = ""
     if remaining and re.match(r"^20\d{2}$", remaining[-1]):
         year = remaining[-1]; remaining = remaining[:-1]
