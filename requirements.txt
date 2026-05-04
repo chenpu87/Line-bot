@@ -1,6 +1,5 @@
 flask>=3.0.0
 line-bot-sdk>=3.0.0
 google-generativeai>=0.8.0
-requests>=2.31.0
 playwright>=1.44.0
-gunicorn  
+gunicorn>=21.2.0
