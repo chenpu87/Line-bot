@@ -98,7 +98,7 @@ FRAME_CODE_MAP = {
     ("bmc", "teammachine slr", "2025"): "BMC-TMS-25",
     ("orbea", "orca aero", "2026"): "ORB-OAR-26",
     ("orbea", "orca", "2026"): "ORB-ORC-26",
-    ("factor", "one", "2026"): "FAC-ONE-26",
+    ("factor", "one", "2026"): "FAC-ONE25",
     ("factor", "o2", "2026"): "FAC-O2-26",
 }
 
@@ -479,27 +479,35 @@ def handle_velogicfit_flow(event, user_id, text):
                 link   = result.get("link", "")
 
                 if bar_x and bar_y:
-                    _push(uid, [_text(
-                        f"📊 Handlebar Position\n"
-                        f"━━━━━━━━━━━━━━━━━━━━\n"
-                        f"🔹 Bar X ：{bar_x} mm\n"
-                        f"🔹 Bar Y ：{bar_y} mm\n"
-                        f"━━━━━━━━━━━━━━━━━━━━\n"
-                        f"車款：{d['brand']} {d['model']} ({d['size']})\n"
-                        f"龍頭：{d['stem_length']}mm ／ {d['stem_angle']}° ／ {d['spacer']}mm spacer\n\n"
-                        f"輸入 #車架幾何 查詢其他車款"
-                    )])
+                    hx_hy_img = f"{BASE_IMG_URL}/bikefit/bikefit_the_hx_hy.jpg"
+                    _push(uid, [
+                        _text(
+                            f"📊 Handlebar Position (HX / HY)\n"
+                            f"━━━━━━━━━━━━━━━━━━━━\n"
+                            f"🔹 HX (Bar X) ：{bar_x} mm\n"
+                            f"🔹 HY (Bar Y) ：{bar_y} mm\n"
+                            f"━━━━━━━━━━━━━━━━━━━━\n"
+                            f"車款：{d['brand']} {d['model']} ({d['size']})\n"
+                            f"龍頭：{d['stem_length']}mm ／ {d['stem_angle']}° ／ {d['spacer']}mm spacer\n\n"
+                            f"輸入 #車架幾何 查詢其他車款"
+                        ),
+                        _img(hx_hy_img)
+                    ])
                 elif link:
-                    _push(uid, [_text(
-                        f"🔗 已為您產生查詢連結\n"
-                        f"━━━━━━━━━━━━━━━━━━━━\n"
-                        f"車款：{d['brand']} {d['model']} ({d['size']})\n"
-                        f"龍頭：{d['stem_length']}mm ／ {d['stem_angle']}° ／ {d['spacer']}mm spacer\n"
-                        f"━━━━━━━━━━━━━━━━━━━━\n"
-                        f"請點以下連結查看 Bar X / Bar Y：\n\n"
-                        f"{link}\n\n"
-                        f"📌 開啟後請捲到「Handlebar position」區塊"
-                    )])
+                    hx_hy_img = f"{BASE_IMG_URL}/bikefit/bikefit_the_hx_hy.jpg"
+                    _push(uid, [
+                        _text(
+                            f"🔗 已為您產生查詢連結\n"
+                            f"━━━━━━━━━━━━━━━━━━━━\n"
+                            f"車款：{d['brand']} {d['model']} ({d['size']})\n"
+                            f"龍頭：{d['stem_length']}mm ／ {d['stem_angle']}° ／ {d['spacer']}mm spacer\n"
+                            f"━━━━━━━━━━━━━━━━━━━━\n"
+                            f"請點以下連結查看 HX / HY：\n\n"
+                            f"{link}\n\n"
+                            f"📌 開啟後請捲到「Handlebar position」區塊"
+                        ),
+                        _img(hx_hy_img)
+                    ])
                 else:
                     _push(uid, [_text(
                         f"⚠️ 找不到此車款\n"
