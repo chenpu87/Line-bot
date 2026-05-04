@@ -100,6 +100,8 @@ FRAME_CODE_MAP = {
     ("orbea", "orca", "2026"): "ORB-ORC-26",
     ("factor", "one", "2026"): "FAC-ONE25",
     ("factor", "o2", "2026"): "FAC-O2-26",
+    ("factor", "o2", "2025"): "FAC-O2-25",
+    ("factor", "ostro vam", "2026"): "FAC-OVA-26",
 }
 
 # VelogicFit 完整 URL（含 app. subdomain）
@@ -308,17 +310,6 @@ def handle_rich_menu_command(event, command):
 
 def handle_ai_conversation(event, user_text):
     user_id = event.source.user_id
-
-    # 偵測疑似誤送的數值（純數字或帶 mm/°），提示重新開始
-    if re.match(r"^-?\d+(\.\d+)?(mm|°|度)?$", user_text.strip()):
-        _reply(event.reply_token, [_text(
-            "😅 您是否要查詢車架幾何？\n\n"
-            "請傳送以下指令開始：\n"
-            "#車架幾何　→　計算 Bar X / Bar Y\n"
-            "#車架對照　→　兩台車架幾何對照"
-        )])
-        return
-
     if is_over_limit(user_id):
         _reply(event.reply_token, [_text(
             "感謝您今日的諮詢！您今天的免費諮詢次數已用完。\n\n"
@@ -391,21 +382,39 @@ def handle_velogicfit_flow(event, user_id, text):
         )])
 
     elif step == 2:
-        # 若用戶把年份一起輸入（如「One 2026」），自動拆出年份
+        # 車款可能包含年份（如「One 2026」），自動拆出
         _parts = text.strip().split()
-        import re as _re
-        if len(_parts) >= 2 and _re.match(r"^20\d{2}$", _parts[-1]):
+        if len(_parts) >= 2 and re.match(r"^20\d{2}$", _parts[-1]):
             data["year"]  = _parts[-1]
             data["model"] = " ".join(_parts[:-1])
+            state["step"] = 3   # 已有年份，跳到尺寸
+            _reply(event.reply_token, [_text(
+                f"車款：{data['model']} ({data['year']}) ✅\n\n"
+                f"步驟 3／6　請輸入尺寸\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"英文尺寸：XXS / XS / S / M / L / XL\n"
+                f"數字尺寸：47 / 50 / 52 / 54 / 56 / 58\n\n"
+                f"📌 請直接輸入車架上的尺寸標示"
+            )])
         else:
             data["model"] = text
-            data.setdefault("year", "")
-        state["step"] = 3
+            state["step"] = 25  # 新中間步驟：詢問年份
+            _reply(event.reply_token, [_text(
+                f"車款：{text} ✅\n\n"
+                f"步驟 2.5／6　請輸入年份\n"
+                f"例如：2026 / 2025 / 2024 / 2023"
+            )])
+
+    elif step == 25:
+        # 年份步驟
+        val = text.strip()
+        if not re.match(r"^20\d{2}$", val):
+            _reply(event.reply_token, [_text("❌ 請輸入正確年份（例如：2026）")]); return
+        data["year"] = val; state["step"] = 3
         _reply(event.reply_token, [_text(
-            f"車款：{data['model']} ✅\n\n"
+            f"年份：{val} ✅\n\n"
             f"步驟 3／6　請輸入尺寸\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"依照您的車架標示輸入即可：\n\n"
             f"英文尺寸：XXS / XS / S / M / L / XL\n"
             f"數字尺寸：47 / 50 / 52 / 54 / 56 / 58\n\n"
             f"📌 請直接輸入車架上的尺寸標示"
@@ -456,7 +465,6 @@ def handle_velogicfit_flow(event, user_id, text):
         data["spacer"] = val
         geo_states.pop(user_id, None)
 
-        # ★ 立即回覆確認，避免 LINE Webhook 5 秒超時
         _reply(event.reply_token, [_text(
             f"✅ 確認資料\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
@@ -467,64 +475,49 @@ def handle_velogicfit_flow(event, user_id, text):
             f"龍頭角度：{data['stem_angle']}°\n"
             f"墊片高度：{data['spacer']}mm\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"⏳ 計算中，請稍候約 30 秒..."
+            f"⏳ 計算中，請稍候..."
         )])
 
-        # ★ 用背景 thread 執行 Playwright，避免佔用 webhook 回應時間
-        def _run_in_background(uid, d):
-            try:
-                result = _run_velogicfit_api(d)
-                bar_x  = result.get("bar_x", "")
-                bar_y  = result.get("bar_y", "")
-                link   = result.get("link", "")
+        result = _run_velogicfit_api(data)
 
-                if bar_x and bar_y:
-                    hx_hy_img = f"{BASE_IMG_URL}/bikefit/bikefit_the_hx_hy.jpg"
-                    _push(uid, [
-                        _text(
-                            f"📊 Handlebar Position (HX / HY)\n"
-                            f"━━━━━━━━━━━━━━━━━━━━\n"
-                            f"🔹 HX (Bar X) ：{bar_x} mm\n"
-                            f"🔹 HY (Bar Y) ：{bar_y} mm\n"
-                            f"━━━━━━━━━━━━━━━━━━━━\n"
-                            f"車款：{d['brand']} {d['model']} ({d['size']})\n"
-                            f"龍頭：{d['stem_length']}mm ／ {d['stem_angle']}° ／ {d['spacer']}mm spacer\n\n"
-                            f"輸入 #車架幾何 查詢其他車款"
-                        ),
-                        _img(hx_hy_img)
-                    ])
-                elif link:
-                    hx_hy_img = f"{BASE_IMG_URL}/bikefit/bikefit_the_hx_hy.jpg"
-                    _push(uid, [
-                        _text(
-                            f"🔗 已為您產生查詢連結\n"
-                            f"━━━━━━━━━━━━━━━━━━━━\n"
-                            f"車款：{d['brand']} {d['model']} ({d['size']})\n"
-                            f"龍頭：{d['stem_length']}mm ／ {d['stem_angle']}° ／ {d['spacer']}mm spacer\n"
-                            f"━━━━━━━━━━━━━━━━━━━━\n"
-                            f"請點以下連結查看 HX / HY：\n\n"
-                            f"{link}\n\n"
-                            f"📌 開啟後請捲到「Handlebar position」區塊"
-                        ),
-                        _img(hx_hy_img)
-                    ])
-                else:
-                    _push(uid, [_text(
-                        f"⚠️ 找不到此車款\n"
-                        f"━━━━━━━━━━━━━━━━━━━━\n"
-                        f"品牌：{d['brand']}\n"
-                        f"車款：{d['model']}\n"
-                        f"━━━━━━━━━━━━━━━━━━━━\n"
-                        f"請至以下網站手動搜尋：\n"
-                        f"{VELOGICFIT_BASE}\n\n"
-                        f"💡 提示：請確認英文拼寫正確\n"
-                        f"例如：Giant TCR Advanced / Specialized Tarmac"
-                    )])
-            except Exception as e:
-                logger.error(f"Background VelogicFit error: {e}")
-                _push(uid, [_text("❌ 計算失敗，請輸入 #車架幾何 重試")])
+        bar_x = result.get("bar_x", "")
+        bar_y = result.get("bar_y", "")
+        link  = result.get("link", "")
 
-        threading.Thread(target=_run_in_background, args=(user_id, data.copy()), daemon=True).start()
+        if bar_x and bar_y:
+            _push(user_id, [_text(
+                f"📊 Handlebar Position\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"🔹 Bar X ：{bar_x} mm\n"
+                f"🔹 Bar Y ：{bar_y} mm\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"車款：{data['brand']} {data['model']} ({data['size']})\n"
+                f"龍頭：{data['stem_length']}mm ／ {data['stem_angle']}° ／ {data['spacer']}mm spacer\n\n"
+                f"輸入 #車架幾何 查詢其他車款"
+            )])
+        elif link:
+            _push(user_id, [_text(
+                f"🔗 已為您產生查詢連結\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"車款：{data['brand']} {data['model']} ({data['size']})\n"
+                f"龍頭：{data['stem_length']}mm ／ {data['stem_angle']}° ／ {data['spacer']}mm spacer\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"請點以下連結查看 Bar X / Bar Y：\n\n"
+                f"{link}\n\n"
+                f"📌 開啟後請捲到「Handlebar position」區塊"
+            )])
+        else:
+            _push(user_id, [_text(
+                f"⚠️ 找不到此車款\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"品牌：{data['brand']}\n"
+                f"車款：{data['model']}\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"請至以下網站手動搜尋：\n"
+                f"{VELOGICFIT_BASE}\n\n"
+                f"💡 提示：請確認英文拼寫正確\n"
+                f"例如：Giant TCR Advanced / Specialized Tarmac"
+            )])
 
 # ── BikeInsights 對話流程 ────────────────────────────────────────────────────
 def handle_bikeinsights_flow(event, user_id, text):
@@ -587,14 +580,13 @@ def handle_bikeinsights_flow(event, user_id, text):
 # ==========================================
 def _scrape_bar_values(url: str) -> dict:
     """
-    用 Playwright 開啟 VelogicFit 頁面，等待 Handlebar position 出現後抓值。
-    VelogicFit 結構確認：
+    用 Playwright 開啟 VelogicFit，等待 td.numeric-value 出現後用 JS 抓 Bar X/Y。
+    VelogicFit 確認結構：
       <td class="row-heading"><span>Bar X</span></td>
       <td class="row-value numeric-value">516</td>
-    回傳 {"bar_x": "xxx", "bar_y": "xxx"} 或 {"error": "..."}
     """
     if not PLAYWRIGHT_AVAILABLE:
-        logger.warning("Playwright 未安裝，回傳連結模式")
+        logger.warning("Playwright 未安裝")
         return {"error": "playwright_not_installed"}
 
     try:
@@ -606,35 +598,30 @@ def _scrape_bar_values(url: str) -> dict:
             page = browser.new_page(viewport={"width": 1280, "height": 900})
             page.goto(url, timeout=45000)
 
-            # Blazor 需要 SignalR 連線才能渲染數值，等待至有數值出現
-            # 等待策略：等 td.numeric-value 出現且有數字內容（最多 30 秒）
+            # 等待 Blazor 渲染完成：td.numeric-value 出現且有內容
             try:
                 page.wait_for_selector("td.numeric-value", timeout=30000)
-                # 再等 2 秒確保 Handlebar position 區塊也渲染完成
-                page.wait_for_timeout(3000)
+                page.wait_for_timeout(3000)  # 確保 Handlebar position 區塊也渲染完
             except PWTimeout:
                 browser.close()
                 return {"error": "timeout_waiting_for_values"}
 
-            # 用 JavaScript 精確抓取 Bar X / Bar Y
-            # 確認的結構：td.row-heading > span 文字 = "Bar X"，同 tr 下 td.numeric-value = 數值
+            # 用 JS 精確抓取（已在 Chrome 驗證過此 selector）
             result = page.evaluate("""() => {
                 const out = {};
                 const tds = Array.from(document.querySelectorAll('td'));
                 tds.filter(td => {
                     const span = td.querySelector('span');
-                    const text = span ? span.textContent.trim() : td.textContent.trim();
-                    return ['Bar X', 'Bar Y'].includes(text);
+                    const t = span ? span.textContent.trim() : td.textContent.trim();
+                    return t === 'Bar X' || t === 'Bar Y';
                 }).forEach(td => {
                     const span = td.querySelector('span');
                     const label = span ? span.textContent.trim() : td.textContent.trim();
                     const tr = td.closest('tr');
-                    // 找同行的 numeric-value td
                     const valTd = tr.querySelector('td.numeric-value');
                     if (valTd) {
                         out[label] = valTd.textContent.trim();
                     } else {
-                        // 備用：找同行第二個 td 的純數字
                         const cells = Array.from(tr.querySelectorAll('td'));
                         for (let i = 1; i < cells.length; i++) {
                             const v = cells[i].textContent.trim();
@@ -648,19 +635,17 @@ def _scrape_bar_values(url: str) -> dict:
             }""")
 
             browser.close()
-            logger.info(f"Scraped values: {result}")
+            logger.info(f"Scraped: {result}")
 
             bar_x = result.get("Bar X", "")
             bar_y = result.get("Bar Y", "")
-
             if bar_x and bar_y:
                 return {"bar_x": bar_x, "bar_y": bar_y}
-            else:
-                logger.warning(f"Bar X/Y not found. Got: {result}")
-                return {"error": "values_not_found"}
+            logger.warning(f"Bar X/Y not found. Got: {result}")
+            return {"error": "values_not_found"}
 
     except Exception as e:
-        logger.error(f"Playwright scrape error: {e}", exc_info=True)
+        logger.error(f"Playwright error: {e}", exc_info=True)
         return {"error": str(e)[:150]}
 
 
