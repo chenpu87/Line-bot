@@ -12,8 +12,17 @@ import tempfile
 import urllib.parse
 import urllib.request
 import requests
+import threading
 import google.generativeai as genai
+
 from flask import Flask, request, abort, send_file
+
+# Playwright 可用性檢查（Render 上需在 requirements.txt 加 playwright）
+try:
+    from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+    PLAYWRIGHT_AVAILABLE = True
+except ImportError:
+    PLAYWRIGHT_AVAILABLE = False
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import (
@@ -109,8 +118,9 @@ user_daily_count     = {}
 DAILY_LIMIT          = 10
 geo_states: dict     = {}
 
-SIZE_OPTIONS   = ["XXS", "XS", "S", "M", "L", "XL"]
-SPACER_OPTIONS = ["10", "15", "20", "25", "30", "35", "40", "45"]
+# 尺寸：自由輸入，不限制選項（各品牌格式不同）
+SPACER_OPTIONS     = ["10", "15", "20", "25", "30", "35", "40", "45"]
+STEM_LENGTH_OPTIONS = [str(x) for x in range(65, 155, 5)]  # 65-150mm 每 5mm
 
 SYSTEM_PROMPT = '''你是 Orange Fruit 橙實設定的專業運動助理，名字叫小橙特助。請用專業但親切的口吻回答，使用台灣繁體中文。
 
@@ -381,24 +391,35 @@ def handle_velogicfit_flow(event, user_id, text):
             data.setdefault("year", "")
         state["step"] = 3
         _reply(event.reply_token, [_text(
-            f"車款：{data['model']} ✅\n\n步驟 3／6\u3000請選擇尺寸\n"
-            f"請回覆：XXS / XS / S / M / L / XL"
+            f"車款：{data['model']} ✅\n\n"
+            f"步驟 3／6　請輸入尺寸\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"依照您的車架標示輸入即可：\n\n"
+            f"英文尺寸：XXS / XS / S / M / L / XL\n"
+            f"數字尺寸：47 / 50 / 52 / 54 / 56 / 58\n\n"
+            f"📌 請直接輸入車架上的尺寸標示"
         )])
 
     elif step == 3:
-        val = text.upper()
-        if val not in SIZE_OPTIONS:
-            _reply(event.reply_token, [_text("❌ 請輸入有效尺寸：XXS / XS / S / M / L / XL")]); return
+        # 尺寸自由輸入：支援英文(S/M/L/XL)或數字(47/52/54/56/58)
+        val = text.strip().upper()
+        if not val:
+            _reply(event.reply_token, [_text("❌ 請輸入尺寸")]); return
         data["size"] = val; state["step"] = 4
         _reply(event.reply_token, [_text(
-            f"尺寸：{val} ✅\n\n步驟 4／6　請輸入龍頭長度（mm）\n"
-            f"常見：80 / 90 / 100 / 110 / 120"
+            f"尺寸：{val} ✅\n\n步驟 4／6　請輸入龍頭長度（mm）\n\n"
+            f"65 / 70 / 75 / 80 / 85 / 90 / 95 / 100 / 105\n"
+            f"110 / 115 / 120 / 125 / 130 / 135 / 140 / 145 / 150"
         )])
 
     elif step == 4:
         val = text.replace("mm", "").strip()
-        if not re.match(r"^\d{2,3}$", val):
-            _reply(event.reply_token, [_text("❌ 請輸入數字（例如：100）")]); return
+        if val not in STEM_LENGTH_OPTIONS:
+            _reply(event.reply_token, [_text(
+                "❌ 請輸入有效龍頭長度（65-150mm，每 5mm）\n\n"
+                "65 / 70 / 75 / 80 / 85 / 90 / 95 / 100 / 105\n"
+                "110 / 115 / 120 / 125 / 130 / 135 / 140 / 145 / 150"
+            )]); return
         data["stem_length"] = val; state["step"] = 5
         _reply(event.reply_token, [_text(
             f"龍頭長度：{val}mm ✅\n\n步驟 5／6　請選擇龍頭角度\n"
@@ -535,13 +556,77 @@ def handle_bikeinsights_flow(event, user_id, text):
             notify_owner(data["bike1"], data["bike2"], user_id)
 
 # ==========================================
-# VelogicFit：產生查詢連結
+# VelogicFit：Playwright 自動抓 Bar X / Bar Y
 # ==========================================
+def _scrape_bar_values(url: str) -> dict:
+    """
+    用 Playwright 開啟 VelogicFit 頁面，等待 Handlebar position 出現後抓值。
+    回傳 {"bar_x": "xxx", "bar_y": "xxx"} 或 {"error": "..."}
+    """
+    if not PLAYWRIGHT_AVAILABLE:
+        logger.warning("Playwright 未安裝，回傳連結模式")
+        return {"error": "playwright_not_installed"}
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
+            page    = browser.new_page()
+            page.goto(url, timeout=30000)
+
+            # 等待 Handlebar position 區塊渲染（最多 20 秒）
+            try:
+                page.wait_for_selector("text=Handlebar position", timeout=20000)
+                page.wait_for_timeout(2000)  # 等數值填入
+            except PWTimeout:
+                browser.close()
+                return {"error": "timeout_waiting_for_handlebar"}
+
+            # 抓 Bar X / Bar Y 數值
+            # VelogicFit 的結構：label 旁邊是數值 td
+            bar_x = bar_y = ""
+            rows = page.query_selector_all("tr")
+            for row in rows:
+                text = row.inner_text()
+                if "Bar X" in text or "Handlebar X" in text:
+                    tds = row.query_selector_all("td")
+                    for td in tds:
+                        val = td.inner_text().strip()
+                        if re.match(r"^-?\d+\.?\d*$", val):
+                            bar_x = val; break
+                if "Bar Y" in text or "Handlebar Y" in text or "Stack" in text and "Handlebar" in text:
+                    tds = row.query_selector_all("td")
+                    for td in tds:
+                        val = td.inner_text().strip()
+                        if re.match(r"^-?\d+\.?\d*$", val):
+                            bar_y = val; break
+
+            # 備用：用頁面文字 parse
+            if not (bar_x and bar_y):
+                full_text = page.inner_text("body")
+                bx = re.search(r"Bar X[^\d-]*(-?\d+\.?\d*)", full_text)
+                by = re.search(r"Bar Y[^\d-]*(-?\d+\.?\d*)", full_text)
+                if bx: bar_x = bx.group(1)
+                if by: bar_y = by.group(1)
+
+            browser.close()
+
+            if bar_x and bar_y:
+                return {"bar_x": bar_x, "bar_y": bar_y}
+            else:
+                logger.warning(f"Bar X/Y not found on page: {url}")
+                return {"error": "values_not_found"}
+
+    except Exception as e:
+        logger.error(f"Playwright scrape error: {e}")
+        return {"error": str(e)[:100]}
+
+
 def _run_velogicfit_api(data: dict) -> dict:
     """
-    產生 VelogicFit 帶完整參數的連結（含 &hb=&hm=&hw= 才會顯示 Handlebar X/Y）
-    URL 格式：https://app.velogicfit.com/frame-comparison
-              ?fm=MER-REA-26&fg=MER-REA-26-S&sl=100&sa=-8&sp=20&hb=&hm=&hw=
+    1. 從對照表 / 自動生成取得 fm/fg 代碼
+    2. 組出完整 URL（含 &hb=&hm=&hw=）
+    3. 用 Playwright 抓 Bar X / Bar Y 數值
+    回傳 {"bar_x":..., "bar_y":..., "link":...} 或 {"link":...} 或 {"link": None}
     """
     brand       = data["brand"]
     model       = data["model"]
@@ -554,10 +639,10 @@ def _run_velogicfit_api(data: dict) -> dict:
     logger.info(f"VelogicFit: {brand} {model} {year} {size} sl={stem_length} sa={stem_angle} sp={spacer}")
 
     # 1. 查代碼對照表（完全匹配）
-    key      = (brand.lower(), model.lower(), year)
-    fm_code  = FRAME_CODE_MAP.get(key, "")
+    key     = (brand.lower(), model.lower(), year)
+    fm_code = FRAME_CODE_MAP.get(key, "")
 
-    # 1b. 年份不符 → 嘗試找同車款最新年份
+    # 1b. 年份不符 → 找同車款最新年份
     if not fm_code and year:
         for y in ["2026", "2025", "2024", "2023"]:
             alt_key = (brand.lower(), model.lower(), y)
@@ -566,27 +651,31 @@ def _run_velogicfit_api(data: dict) -> dict:
                 logger.info(f"Year fallback: {year} → {y}, code={fm_code}")
                 break
 
-    # 2. 對照表找不到 → 嘗試自動生成
+    # 2. 對照表找不到 → 自動生成代碼
     if not fm_code:
-        year_short = year[-2:] if year and len(year) >= 2 else ""
-        if not year_short:
-            year_short = "26"  # 預設用最新年份猜代碼
+        year_short = year[-2:] if year and len(year) >= 2 else "26"
         fm_code = _guess_frame_code(brand, model, year_short)
 
-    if fm_code:
-        fg_code = f"{fm_code}-{size}"
-        # ✅ 修正：加上 &hb=&hm=&hw= 才能顯示 Handlebar X/Y 值
-        link = (
-            f"{VELOGICFIT_BASE}"
-            f"?fm={fm_code}&fg={fg_code}"
-            f"&sl={stem_length}&sa={stem_angle}&sp={spacer}"
-            f"&hb=&hm=&hw="
-        )
-        logger.info(f"Generated link: {link}")
-        return {"link": link, "fm": fm_code, "fg": fg_code}
+    if not fm_code:
+        return {"link": None}
 
-    # 3. 找不到代碼
-    return {"link": None}
+    fg_code = f"{fm_code}-{size}"
+    link = (
+        f"{VELOGICFIT_BASE}"
+        f"?fm={fm_code}&fg={fg_code}"
+        f"&sl={stem_length}&sa={stem_angle}&sp={spacer}"
+        f"&hb=&hm=&hw="
+    )
+    logger.info(f"Generated link: {link}")
+
+    # 3. 用 Playwright 直接抓數值
+    scraped = _scrape_bar_values(link)
+    if scraped.get("bar_x") and scraped.get("bar_y"):
+        return {"bar_x": scraped["bar_x"], "bar_y": scraped["bar_y"], "link": link}
+
+    # Playwright 失敗 → 回傳連結讓客人自己點
+    logger.warning(f"Scrape failed ({scraped.get('error')}), returning link only")
+    return {"link": link}
 
 
 def _guess_frame_code(brand: str, model: str, year_short: str) -> str:
