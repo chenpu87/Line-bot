@@ -266,6 +266,10 @@ def handle_ai_conversation(event, user_text):
         )]); return
 
     add_count(user_id)
+
+    # 先立即 reply「思考中」避免 token 過期
+    _reply(event.reply_token, [_text("🤔 小橙正在思考中...")])
+
     if user_id not in conversation_history:
         conversation_history[user_id] = []
     conversation_history[user_id].append({"role": "user", "parts": [user_text]})
@@ -286,7 +290,8 @@ def handle_ai_conversation(event, user_text):
         if kw in user_text.lower():
             messages += [_img(u) for u in imgs[:2]]; break
 
-    _reply(event.reply_token, messages)
+    # 用 push 發送實際回覆
+    _push(user_id, messages)
 
 # ==========================================
 # 新功能：車架幾何
@@ -677,7 +682,8 @@ def home():
 def handle_message(event):
     user_text = event.message.text.strip()
     user_id   = event.source.user_id
-    app.logger.info(f"收到訊息: {user_text} from {user_id}")
+    group_id  = getattr(event.source, "group_id", None)
+    app.logger.info(f"收到訊息: {user_text} | user={user_id} | group={group_id}")
 
     # 車架幾何流程進行中 → 優先處理
     if user_id in geo_states:
