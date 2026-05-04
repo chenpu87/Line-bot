@@ -98,7 +98,7 @@ FRAME_CODE_MAP = {
     ("bmc", "teammachine slr", "2025"): "BMC-TMS-25",
     ("orbea", "orca aero", "2026"): "ORB-OAR-26",
     ("orbea", "orca", "2026"): "ORB-ORC-26",
-    ("factor", "one", "2026"): "FAC-ONE25",
+    ("factor", "one", "2026"): "FAC-ONE-26",
     ("factor", "o2", "2026"): "FAC-O2-26",
 }
 
@@ -308,6 +308,17 @@ def handle_rich_menu_command(event, command):
 
 def handle_ai_conversation(event, user_text):
     user_id = event.source.user_id
+
+    # 偵測疑似誤送的數值（純數字或帶 mm/°），提示重新開始
+    if re.match(r"^-?\d+(\.\d+)?(mm|°|度)?$", user_text.strip()):
+        _reply(event.reply_token, [_text(
+            "😅 您是否要查詢車架幾何？\n\n"
+            "請傳送以下指令開始：\n"
+            "#車架幾何　→　計算 Bar X / Bar Y\n"
+            "#車架對照　→　兩台車架幾何對照"
+        )])
+        return
+
     if is_over_limit(user_id):
         _reply(event.reply_token, [_text(
             "感謝您今日的諮詢！您今天的免費諮詢次數已用完。\n\n"
@@ -445,6 +456,7 @@ def handle_velogicfit_flow(event, user_id, text):
         data["spacer"] = val
         geo_states.pop(user_id, None)
 
+        # ★ 立即回覆確認，避免 LINE Webhook 5 秒超時
         _reply(event.reply_token, [_text(
             f"✅ 確認資料\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
@@ -455,49 +467,56 @@ def handle_velogicfit_flow(event, user_id, text):
             f"龍頭角度：{data['stem_angle']}°\n"
             f"墊片高度：{data['spacer']}mm\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"⏳ 計算中，請稍候..."
+            f"⏳ 計算中，請稍候約 30 秒..."
         )])
 
-        result = _run_velogicfit_api(data)
+        # ★ 用背景 thread 執行 Playwright，避免佔用 webhook 回應時間
+        def _run_in_background(uid, d):
+            try:
+                result = _run_velogicfit_api(d)
+                bar_x  = result.get("bar_x", "")
+                bar_y  = result.get("bar_y", "")
+                link   = result.get("link", "")
 
-        bar_x = result.get("bar_x", "")
-        bar_y = result.get("bar_y", "")
-        link  = result.get("link", "")
+                if bar_x and bar_y:
+                    _push(uid, [_text(
+                        f"📊 Handlebar Position\n"
+                        f"━━━━━━━━━━━━━━━━━━━━\n"
+                        f"🔹 Bar X ：{bar_x} mm\n"
+                        f"🔹 Bar Y ：{bar_y} mm\n"
+                        f"━━━━━━━━━━━━━━━━━━━━\n"
+                        f"車款：{d['brand']} {d['model']} ({d['size']})\n"
+                        f"龍頭：{d['stem_length']}mm ／ {d['stem_angle']}° ／ {d['spacer']}mm spacer\n\n"
+                        f"輸入 #車架幾何 查詢其他車款"
+                    )])
+                elif link:
+                    _push(uid, [_text(
+                        f"🔗 已為您產生查詢連結\n"
+                        f"━━━━━━━━━━━━━━━━━━━━\n"
+                        f"車款：{d['brand']} {d['model']} ({d['size']})\n"
+                        f"龍頭：{d['stem_length']}mm ／ {d['stem_angle']}° ／ {d['spacer']}mm spacer\n"
+                        f"━━━━━━━━━━━━━━━━━━━━\n"
+                        f"請點以下連結查看 Bar X / Bar Y：\n\n"
+                        f"{link}\n\n"
+                        f"📌 開啟後請捲到「Handlebar position」區塊"
+                    )])
+                else:
+                    _push(uid, [_text(
+                        f"⚠️ 找不到此車款\n"
+                        f"━━━━━━━━━━━━━━━━━━━━\n"
+                        f"品牌：{d['brand']}\n"
+                        f"車款：{d['model']}\n"
+                        f"━━━━━━━━━━━━━━━━━━━━\n"
+                        f"請至以下網站手動搜尋：\n"
+                        f"{VELOGICFIT_BASE}\n\n"
+                        f"💡 提示：請確認英文拼寫正確\n"
+                        f"例如：Giant TCR Advanced / Specialized Tarmac"
+                    )])
+            except Exception as e:
+                logger.error(f"Background VelogicFit error: {e}")
+                _push(uid, [_text("❌ 計算失敗，請輸入 #車架幾何 重試")])
 
-        if bar_x and bar_y:
-            _push(user_id, [_text(
-                f"📊 Handlebar Position\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"🔹 Bar X ：{bar_x} mm\n"
-                f"🔹 Bar Y ：{bar_y} mm\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"車款：{data['brand']} {data['model']} ({data['size']})\n"
-                f"龍頭：{data['stem_length']}mm ／ {data['stem_angle']}° ／ {data['spacer']}mm spacer\n\n"
-                f"輸入 #車架幾何 查詢其他車款"
-            )])
-        elif link:
-            _push(user_id, [_text(
-                f"🔗 已為您產生查詢連結\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"車款：{data['brand']} {data['model']} ({data['size']})\n"
-                f"龍頭：{data['stem_length']}mm ／ {data['stem_angle']}° ／ {data['spacer']}mm spacer\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"請點以下連結查看 Bar X / Bar Y：\n\n"
-                f"{link}\n\n"
-                f"📌 開啟後請捲到「Handlebar position」區塊"
-            )])
-        else:
-            _push(user_id, [_text(
-                f"⚠️ 找不到此車款\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"品牌：{data['brand']}\n"
-                f"車款：{data['model']}\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"請至以下網站手動搜尋：\n"
-                f"{VELOGICFIT_BASE}\n\n"
-                f"💡 提示：請確認英文拼寫正確\n"
-                f"例如：Giant TCR Advanced / Specialized Tarmac"
-            )])
+        threading.Thread(target=_run_in_background, args=(user_id, data.copy()), daemon=True).start()
 
 # ── BikeInsights 對話流程 ────────────────────────────────────────────────────
 def handle_bikeinsights_flow(event, user_id, text):
