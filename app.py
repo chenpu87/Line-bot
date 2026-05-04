@@ -396,21 +396,49 @@ def handle_velogicfit_flow(event, user_id, text):
 
         result = _run_velogicfit_api(data)
 
-        if result.get("error"):
-            _push(user_id, [_text(
-                f"❌ 查詢失敗\n{result['error']}\n\n"
-                f"請確認品牌 / 車款拼寫，再輸入 #車架幾何 重試"
-            )])
-        else:
+        bar_x = result.get("bar_x", "")
+        bar_y = result.get("bar_y", "")
+        link  = result.get("link", "")
+
+        if bar_x and bar_y:
+            # 成功取得數值
             _push(user_id, [_text(
                 f"📊 Handlebar Position\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"🔹 Bar X ：{result['bar_x']} mm\n"
-                f"🔹 Bar Y ：{result['bar_y']} mm\n"
+                f"🔹 Bar X ：{bar_x} mm\n"
+                f"🔹 Bar Y ：{bar_y} mm\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
                 f"車款：{data['brand']} {data['model']} ({data['size']})\n"
                 f"龍頭：{data['stem_length']}mm ／ {data['stem_angle']}° ／ {data['spacer']}mm spacer\n\n"
                 f"輸入 #車架幾何 查詢其他車款"
+            )])
+        elif link:
+            # 有連結但沒有數值，讓客人自己點
+            _push(user_id, [_text(
+                f"🔗 已為您產生查詢連結\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"車款：{data['brand']} {data['model']} ({data['size']})\n"
+                f"龍頭：{data['stem_length']}mm ／ {data['stem_angle']}° ／ {data['spacer']}mm spacer\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"請點以下連結查看 Bar X / Bar Y：\n\n"
+                f"{link}\n\n"
+                f"📌 開啟後請捲到「Handlebar position」區塊"
+            )])
+        else:
+            # 找不到車款，給 VelogicFit 搜索連結
+            search_link = (
+                f"https://app.velogicfit.com/frame-comparison"
+            )
+            _push(user_id, [_text(
+                f"⚠️ 找不到此車款\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"品牌：{data['brand']}\n"
+                f"車款：{data['model']}\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"請至以下網站手動搜尋：\n"
+                f"{search_link}\n\n"
+                f"💡 提示：請確認英文拼寫正確\n"
+                f"例如：Giant TCR Advanced / Specialized Tarmac"
             )])
 
 # ── BikeInsights 對話流程 ────────────────────────────────────────────────────
@@ -473,7 +501,7 @@ def handle_bikeinsights_flow(event, user_id, text):
             notify_owner(data["bike1"], data["bike2"], user_id)
 
 # ==========================================
-# VelogicFit API（純 requests，不需要瀏覽器）
+# VelogicFit：產生查詢連結 + 嘗試 API
 # ==========================================
 def _run_velogicfit_api(data: dict) -> dict:
     """
@@ -487,73 +515,78 @@ def _run_velogicfit_api(data: dict) -> dict:
     stem_angle  = data["stem_angle"]
     spacer      = data["spacer"]
 
-    logger.info(f"VelogicFit API: {brand} {model} {size} sl={stem_length} sa={stem_angle} sp={spacer}")
+    logger.info(f"VelogicFit: {brand} {model} {size} sl={stem_length} sa={stem_angle} sp={spacer}")
 
+    # VelogicFit 使用 Blazor + SignalR，無法直接用 requests 取得數值
+    # 改為嘗試 Frame Lookup API 取得車款代碼，再產生查詢連結給用戶
     try:
-        # Step 1: 搜索車款，取得 frame model code
-        search_url = "https://app.velogicfit.com/api/frame/search"
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Accept": "application/json",
+            "Accept": "application/json, text/plain, */*",
             "Referer": "https://app.velogicfit.com/frame-comparison"
         }
-        search_resp = requests.get(
-            search_url,
-            params={"q": f"{brand} {model}"},
+
+        # 嘗試 Frame Lookup API
+        lookup_resp = requests.get(
+            "https://app.velogicfit.com/api/framelookup",
+            params={"search": f"{brand} {model}", "pageSize": 5},
             headers=headers,
-            timeout=15
+            timeout=10
         )
+        logger.info(f"Frame lookup: {lookup_resp.status_code} - {lookup_resp.text[:200]}")
 
-        if search_resp.status_code != 200:
-            # 備用：直接用 URL 參數猜測格式
-            return _velogicfit_url_method(data)
+        fm_code = ""
+        fg_code = ""
 
-        frames = search_resp.json()
-        if not frames:
-            return {"error": f"找不到 {brand} {model}，請確認拼寫"}
+        if lookup_resp.status_code == 200:
+            try:
+                items = lookup_resp.json()
+                if isinstance(items, list) and items:
+                    first = items[0]
+                    fm_code = first.get("modelCode") or first.get("code") or ""
+                    geos = first.get("geometries") or []
+                    for g in geos:
+                        if (g.get("size") or "").upper() == size.upper():
+                            fg_code = g.get("code") or ""
+                            break
+                    if not fg_code and geos:
+                        fg_code = geos[0].get("code") or ""
+            except Exception:
+                pass
 
-        # 取第一個結果的 model code 和 frame geometry code
-        frame     = frames[0]
-        fm_code   = frame.get("modelCode", "")
-        fg_code   = frame.get("geometries", [{}])[0].get("code", "") if frame.get("geometries") else ""
+        if fm_code and fg_code:
+            # 有代碼！嘗試取得計算結果
+            pos_resp = requests.get(
+                "https://app.velogicfit.com/api/frameposition",
+                params={"fm": fm_code, "fg": fg_code, "sl": stem_length, "sa": stem_angle, "sp": spacer},
+                headers=headers,
+                timeout=10
+            )
+            logger.info(f"Position API: {pos_resp.status_code} - {pos_resp.text[:200]}")
+            if pos_resp.status_code == 200:
+                try:
+                    r = pos_resp.json()
+                    bx = str(r.get("barX") or r.get("bar_x") or "")
+                    by = str(r.get("barY") or r.get("bar_y") or "")
+                    if bx and by:
+                        return {"bar_x": bx, "bar_y": by}
+                except Exception:
+                    pass
 
-        # 選擇符合尺寸的 geometry
-        for geo in frame.get("geometries", []):
-            if geo.get("size", "").upper() == size.upper():
-                fg_code = geo.get("code", fg_code)
-                break
+            # 有代碼但取不到數值，產生直接連結
+            link = (
+                f"https://app.velogicfit.com/frame-comparison"
+                f"?fm={fm_code}&fg={fg_code}"
+                f"&sl={stem_length}&sa={stem_angle}&sp={spacer}"
+            )
+            return {"link": link, "fm": fm_code, "fg": fg_code}
 
-        if not fm_code:
-            return _velogicfit_url_method(data)
-
-        # Step 2: 取得幾何計算結果
-        calc_url = "https://app.velogicfit.com/api/frame/comparison"
-        calc_resp = requests.get(
-            calc_url,
-            params={
-                "fm": fm_code,
-                "fg": fg_code,
-                "sl": stem_length,
-                "sa": stem_angle,
-                "sp": spacer,
-            },
-            headers=headers,
-            timeout=15
-        )
-
-        if calc_resp.status_code == 200:
-            result = calc_resp.json()
-            bar_x  = str(result.get("barX") or result.get("bar_x") or "")
-            bar_y  = str(result.get("barY") or result.get("bar_y") or "")
-            if bar_x and bar_y:
-                return {"bar_x": bar_x, "bar_y": bar_y}
-
-        # 若 API 格式不對，用 URL 方式
-        return _velogicfit_url_method(data)
+        # 沒有代碼，回傳搜索連結
+        return {"link": None}
 
     except Exception as e:
-        logger.error(f"VelogicFit API error: {e}")
-        return _velogicfit_url_method(data)
+        logger.error(f"VelogicFit error: {e}")
+        return {"link": None}
 
 
 def _velogicfit_url_method(data: dict) -> dict:
