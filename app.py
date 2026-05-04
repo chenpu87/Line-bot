@@ -89,8 +89,8 @@ FRAME_CODE_MAP = {
     ("bmc", "teammachine slr", "2025"): "BMC-TMS-25",
     ("orbea", "orca aero", "2026"): "ORB-OAR-26",
     ("orbea", "orca", "2026"): "ORB-ORC-26",
-    ("factor", "One", "2026"): "FAC-ONE25",
-    ("factor", "O2", "2026"): "FAC-O2-26",
+    ("factor", "one", "2026"): "FAC-ONE25",
+    ("factor", "o2", "2026"): "FAC-O2-26",
 }
 
 # VelogicFit 完整 URL（含 app. subdomain）
@@ -370,9 +370,18 @@ def handle_velogicfit_flow(event, user_id, text):
         )])
 
     elif step == 2:
-        data["model"] = text; state["step"] = 3
+        # 若用戶把年份一起輸入（如「One 2026」），自動拆出年份
+        _parts = text.strip().split()
+        import re as _re
+        if len(_parts) >= 2 and _re.match(r"^20\d{2}$", _parts[-1]):
+            data["year"]  = _parts[-1]
+            data["model"] = " ".join(_parts[:-1])
+        else:
+            data["model"] = text
+            data.setdefault("year", "")
+        state["step"] = 3
         _reply(event.reply_token, [_text(
-            f"車款：{text} ✅\n\n步驟 3／6　請選擇尺寸\n"
+            f"車款：{data['model']} ✅\n\n步驟 3／6\u3000請選擇尺寸\n"
             f"請回覆：XXS / XS / S / M / L / XL"
         )])
 
@@ -548,11 +557,21 @@ def _run_velogicfit_api(data: dict) -> dict:
     key      = (brand.lower(), model.lower(), year)
     fm_code  = FRAME_CODE_MAP.get(key, "")
 
+    # 1b. 年份不符 → 嘗試找同車款最新年份
+    if not fm_code and year:
+        for y in ["2026", "2025", "2024", "2023"]:
+            alt_key = (brand.lower(), model.lower(), y)
+            if alt_key in FRAME_CODE_MAP:
+                fm_code = FRAME_CODE_MAP[alt_key]
+                logger.info(f"Year fallback: {year} → {y}, code={fm_code}")
+                break
+
     # 2. 對照表找不到 → 嘗試自動生成
     if not fm_code:
         year_short = year[-2:] if year and len(year) >= 2 else ""
-        if year_short:
-            fm_code = _guess_frame_code(brand, model, year_short)
+        if not year_short:
+            year_short = "26"  # 預設用最新年份猜代碼
+        fm_code = _guess_frame_code(brand, model, year_short)
 
     if fm_code:
         fg_code = f"{fm_code}-{size}"
