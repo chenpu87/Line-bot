@@ -47,22 +47,39 @@ TZ_OFFSET     = 8
 
 FRAME_CODE_MAP = {
     ("merida", "reacto", "2026"): "MER-REA-26",
+    ("merida", "reacto one", "2026"): "MER-REA-ONE",
+    ("merida", "reacto", "TEAM", "2026"): "MER-REA-TM-26",
     ("merida", "reacto", "2025"): "MER-REA-25",
-    ("merida", "reacto", "2024"): "MER-REA-24",
-    ("merida", "reacto", "2023"): "MER-REA-23",
+    ("merida", "reacto", "2022"): "MER-REA-22",
+    
     ("merida", "scultura", "2026"): "MER-SCU-26",
+    ("merida", "scultura Endurance", "2026"): "MER-SCUEND-26",
+    ("merida", "scultura", "2022"): "MER-SCU",
     ("merida", "scultura", "2025"): "MER-SCU-25",
-    ("merida", "scultura", "2024"): "MER-SCU-24",
-    ("merida", "scultura team", "2026"): "MER-SCT-26",
-    ("merida", "mission cx", "2026"): "MER-MCX-26",
-    ("giant", "tcr advanced", "2026"): "GIA-TCR-26",
-    ("giant", "tcr advanced", "2025"): "GIA-TCR-25",
-    ("giant", "tcr advanced", "2024"): "GIA-TCR-24",
-    ("giant", "tcr advanced sl", "2026"): "GIA-TCS-26",
-    ("giant", "propel advanced", "2026"): "GIA-PRO-26",
-    ("giant", "propel advanced", "2025"): "GIA-PRO-25",
-    ("giant", "defy advanced", "2026"): "GIA-DEF-26",
-    ("giant", "defy advanced", "2025"): "GIA-DEF-25",
+    ("merida", "scultura Endurance", "2022"): "MER-SCU-END",
+    
+    
+    ("giant", "tcr advanced", "2026"): "GIA-TCRADV-26",
+    ("giant", "tcr advanced PRO", "2026"): "GIA-TCRADPRO-26",
+    ("giant", "tcr advanced sl", "2026"): "GIA-TCR-ASL-G11-26",
+    ("giant", "tcr advanced", "2025"): "GIA-TCR-ADV0",
+    ("giant", "tcr",): "GIA-TCR-ADV",
+    
+    
+    ("giant", "propel advanced", "2027"): "GIA-PROAD-27",
+    ("giant", "propel advanced PRO", "2027"): "GIA-PROADPRO-27",
+    ("giant", "propel advanced SL", "2027"): "GIA-PRO-ASL-27",
+    ("giant", "propel advanced", "2026"): "GIA-PROAD-26",
+    ("giant", "propel advanced PRO", "2026"): "GIA-PROADPRO-26",
+    ("giant", "propel advanced SL", "2026"): "GIA-PRO-ASL-26",
+    ("giant", "propel",): "GIA-PRO-ADV",
+
+    ("giant", "defy advanced Pro", "2026"): "GIA-DEFYADVP-26",
+    ("giant", "defy advanced", "2026"): "GIA-DEFYADV-26",
+    ("giant", "defy advanced SL", "2026"): "GIA-DEF-ASL-26",
+    ("giant", "defy advanced",): "GIA-DEF",
+    
+    
     ("trek", "madone slr", "2026"): "TRE-MAS-26",
     ("trek", "madone slr", "2025"): "TRE-MAS-25",
     ("trek", "emonda slr", "2026"): "TRE-EMS-26",
@@ -87,17 +104,34 @@ FRAME_CODE_MAP = {
     ("pinarello", "prince", "2026"): "PIN-PRI-26",
     ("colnago", "v4rs", "2026"): "COL-V4R-26",
     ("colnago", "v4rs", "2025"): "COL-V4R-25",
+    ("Colnago","V1RS",):"COL-Y1RS-26",
+    ("Colnago","C68",):"COL-C68RD-26",
     ("scott", "addict rc", "2026"): "SCO-ARC-26",
     ("scott", "addict rc", "2025"): "SCO-ARC-25",
     ("scott", "foil rc", "2026"): "SCO-FRC-26",
+    
     ("bmc", "teammachine slr", "2026"): "BMC-TMS-26",
     ("bmc", "teammachine slr", "2025"): "BMC-TMS-25",
+    
     ("orbea", "orca aero", "2026"): "ORB-OAR-26",
     ("orbea", "orca", "2026"): "ORB-ORC-26",
     ("factor", "one", "2026"): "FAC-ONE25",
+    ("factor", "one", "2025"): "FAC-ONE25",
     ("factor", "o2", "2026"): "FAC-O2-26",
-    ("factor", "o2", "2025"): "FAC-O2-25",
+    ("factor", "o2 vam", "2026"): "FAC-O2-VAM-26",
+    ("factor", "o2",): "FAC-O2-26",
+    ("TIME","Fluidity", "2025"): "TIM-FLUID-25",
+    ("TIME","Scylon", "2025"): "TIM-SCY25",
+    ("TIME","Scylon", "2026"): "TIM-SCY25",
+    ("TIME","Scylon",): "TIM-SCY25",
+    ("ridley", "noah fast",): "RID-NOA-FAS30",
+    ("ridley", "noah 3.0",): "RID-NOA-30",
+    ("wilier","Filante ID2", "2026",);"WIL-FIL-ID2-26", 
+    ("wilier","Filante", "2025",);"WIL-FIL-SLR25",
+    ("wilier","0SLR",);"WIL-WIL-024",
+    
 }
+    
 
 # VelogicFit 完整 URL（含 app. subdomain）
 VELOGICFIT_BASE = "https://app.velogicfit.com/frame-comparison"
@@ -745,8 +779,14 @@ def _guess_frame_code(brand: str, model: str, year_short: str) -> str:
         "pinarello": "PIN", "colnago": "COL", "scott": "SCO",
         "bmc": "BMC", "orbea": "ORB", "wilier": "WIL",
         "look": "LOO", "time": "TIM", "factor": "FAC",
-        "cannondale": "CAN", "bianchi": "BIA", "ridley": "RID",
+        "cannondale": "CND", "bianchi": "BIA", "ridley": "RID",
         "focus": "FOC", "rose": "ROS", "cube": "CUB",
+        "no.22": "N22", "no22": "N22", "number 22": "N22",
+        "lapierre": "LAP", "storck": "STO", "rose": "ROS",
+        "cipollini": "CIP", "dolan": "DOL", "fuji": "FUJ",
+        "felt": "FEL", "kona": "KON", "de rosa": "DER",
+        "kuota": "KUO", "titici": "TIT", "argon 18": "A18",
+        "argon18": "A18", "3t": "3TC", "cervélo": "CER",
     }
     brand_code  = brand_map.get(brand.lower(), brand[:3].upper())
     model_clean = re.sub(r'[^a-zA-Z0-9]', '', model).upper()
