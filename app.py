@@ -1,6 +1,6 @@
 # ==========================================
 # LINE Bot with Gemini AI + Image Support
-# Orange Fruit 小橙特助
+# Orange Fruit 小橙特助 - 完整整合版
 # ==========================================
 import os
 import re
@@ -45,6 +45,7 @@ SERVICE_START = 9
 SERVICE_END   = 12
 TZ_OFFSET     = 8
 
+# 保留你的完整車架代碼對照表
 FRAME_CODE_MAP = {
     ("merida", "reacto", "2026"): "MER-REA-26",
     ("merida", "reacto", "2025"): "MER-REA-25",
@@ -95,13 +96,11 @@ FRAME_CODE_MAP = {
     ("orbea", "orca aero", "2026"): "ORB-OAR-26",
     ("orbea", "orca", "2026"): "ORB-ORC-26",
     ("factor", "one", "2026"): "FAC-ONE-26",
-    ("factor", "one", "2025"): "FAC-ONE25",
+    ("factor", "one", "2025"): "FAC-ONE-25",
     ("factor", "o2", "2026"): "FAC-O2-26",
     ("factor", "o2", "2025"): "FAC-O2-25",
     ("factor", "ostro vam", "2026"): "FAC-OVA-26",
     ("factor", "ostro vam", "2025"): "FAC-OVA-25",
-
-    # ── Ridley（公路車）──
     ("ridley", "falcn rs", "2026"): "RID-FRS-26",
     ("ridley", "falcn rs", "2025"): "RID-FRS-25",
     ("ridley", "falcn rs", "2024"): "RID-FRS-24",
@@ -112,8 +111,6 @@ FRAME_CODE_MAP = {
     ("ridley", "helium slx", "2026"): "RID-HSL-26",
     ("ridley", "helium slx", "2025"): "RID-HSL-25",
     ("ridley", "kanzo fast", "2026"): "RID-KZF-26",
-
-    # ── Wilier ──
     ("wilier", "zero slr", "2026"): "WIL-ZSL-26",
     ("wilier", "zero slr", "2025"): "WIL-ZSL-25",
     ("wilier", "zero slr", "2024"): "WIL-ZSL-24",
@@ -128,8 +125,6 @@ FRAME_CODE_MAP = {
     ("wilier", "cento10 pro", "2025"): "WIL-CPR-25",
     ("wilier", "rave slr", "2026"): "WIL-RSL-26",
     ("wilier", "rave slr", "2025"): "WIL-RSL-25",
-
-    # ── TIME ──
     ("time", "fluidity ultra", "2026"): "TIM-FLU-26",
     ("time", "fluidity ultra", "2025"): "TIM-FLU-25",
     ("time", "fluidity", "2026"): "TIM-FLU-26",
@@ -141,8 +136,6 @@ FRAME_CODE_MAP = {
     ("time", "alpe d'huez", "2026"): "TIM-ADH-26",
     ("time", "alpe d'huez", "2025"): "TIM-ADH-25",
     ("time", "alpe dhuez", "2026"): "TIM-ADH-26",
-
-    # ── No.22 ──
     ("no.22", "drifter", "2026"): "N22-DRI-26",
     ("no.22", "drifter", "2025"): "N22-DRI-25",
     ("no.22", "reactor", "2026"): "N22-REA-26",
@@ -153,7 +146,6 @@ FRAME_CODE_MAP = {
     ("no22", "reactor", "2026"): "N22-REA-26",
 }
 
-# VelogicFit 完整 URL（含 app. subdomain）
 VELOGICFIT_BASE = "https://app.velogicfit.com/frame-comparison"
 
 genai.configure(api_key=GEMINI_API_KEY)
@@ -169,84 +161,127 @@ user_daily_count     = {}
 DAILY_LIMIT          = 10
 geo_states: dict     = {}
 
-# 尺寸：自由輸入，不限制選項（各品牌格式不同）
-SPACER_OPTIONS     = ["10", "15", "20", "25", "30", "35", "40", "45"]
-# BikeInsights 尺寸選項（英文 + 數字都支援）
-SIZE_OPTIONS = ["XXS", "XS", "S", "M", "L", "XL",
-                "3XS", "2XS", "XS/S", "S/M", "M/L",
-                "44", "46", "47", "48", "49", "50",
-                "51", "52", "53", "54", "55", "56",
-                "57", "58", "59", "60", "61", "62"]
-STEM_LENGTH_OPTIONS = [str(x) for x in range(65, 155, 5)]  # 65-150mm 每 5mm
+SPACER_OPTIONS      = ["10", "15", "20", "25", "30", "35", "40", "45"]
+SIZE_OPTIONS        = ["XXS", "XS", "S", "M", "L", "XL", "3XS", "2XS", "XS/S", "S/M", "M/L",
+                       "44", "46", "47", "48", "49", "50", "51", "52", "53", "54", "55",
+                       "56", "57", "58", "59", "60", "61", "62"]
+STEM_LENGTH_OPTIONS = [str(x) for x in range(65, 155, 5)]
 
+# ==========================================
+# 升級版 SYSTEM_PROMPT：整合 Bikefit 專業知識
+# ==========================================
 SYSTEM_PROMPT = '''你是 Orange Fruit 橙實設定的專業運動助理，名字叫小橙特助。請用專業但親切的口吻回答，使用台灣繁體中文。
 
 你擅長：
 - 單車 Bikefit 調整
-- 運動伸展放鬆
-- 騎乘肌群訓練
+- Saddle Fit（坐墊適配）專業知識
+- 單車幾何分析（HX、HY、Stack、Reach 等參數）
+- 運動伸展放鬆技巧
+- 按摩球、滾筒、花生球使用教學
+- 髖關節訓練與伸展
 - 運動傷害預防
 
-回答規則：
-1. 當使用者描述不適或問題時，先簡短分析原因（3-5句即可），然後只問一個關鍵問題：
+== Bikefit 專業知識 ==
+Bikefit 是什麼？
+Bikefit 是一個專業的單車設定服務，目的是讓您的自行車完美貼合您的身體。透過精密測量、動態分析和專業調整，確保您在騎乘時獲得最佳的舒適度、效率和安全性。
+
+Bikefit 包含什麼？
+1. **身體評估**：測量您的柔軟度、關節活動度、骨盆寬度（坐骨寬度）
+2. **騎乘姿勢分析**：觀察您實際騎乘時的動態姿勢
+3. **單車調整**：
+   - 座墊高度（Seat Post Height, SP）
+   - 座墊前後位置（Seat Position）
+   - 把手高低與距離
+   - 卡踏位置與角度（Cleat Position）
+   - 車把寬度
+4. **動態測試**：調整後的實際騎乘測試與微調
+
+Bikefit 的好處？
+✅ 提升踩踏效率，減少能量浪費
+✅ 降低運動傷害風險（膝蓋痛、下背痛、頸部痠痛）
+✅ 增加長途騎乘的舒適度
+✅ 改善呼吸與血液循環
+✅ 讓每一公里都更順、更快、更有效率
+
+== Saddle Fit 專業知識 ==
+什麼是 Saddle Fit？
+Saddle Fit 是 Bikefit 中最重要的一環，專注於選擇和調整「最適合您的坐墊」。
+
+為什麼 Saddle Fit 重要？
+1. **每個人坐骨寬度不同**：坐骨寬度（Sit Bones Width, SBW）是選擇坐墊的關鍵指標
+2. **標準定位提升舒適度**：精準測量可以減少麻木感、降低壓迫
+3. **穩定盆骨，優化踩踏效率**
+4. **減少會陰部壓迫與受傷風險**
+
+Saddle Fit 關鍵參數：
+1. **坐骨寬度（SBW）**：影響坐墊最寬處的選擇，決定支撐性
+2. **軀幹角度（Trunk Angle）**：影響骨盆旋轉與壓力分佈，決定坐墊形狀
+
+坐墊形狀與騎乘風格對應：
+- **舒適休閒（Relaxed）**：90° 軀幹角度，寬支撐，適合都會騎乘
+- **公路訓練（Sport）**：45° 軀幹角度，兼顧支撐與活動度
+- **競技競速（Performance）**：<30° 軀幹角度，最大化活動空間與壓力管理
+- **鐵人三項（Triathlon/TT）**：前傾坐姿，前端坐墊即減壓
+
+== 單車伸展放鬆的重要性 ==
+為什麼騎車後需要伸展？
+1. **預防肌肉緊繃**：長時間固定姿勢會讓肌肉縮短僵硬
+2. **改善柔軟度**：增加關節活動範圍
+3. **促進恢復**：加速乳酸代謝，減少痠痛
+4. **預防運動傷害**：平衡肌肉張力，避免代償
+
+重點伸展部位：髖屈肌、股四頭肌、腿後肌、下背部、小腿、胸大肌與肩膀
+
+== 運動按摩自我放鬆工具 ==
+**按摩球**：針對深層激痛點，定點加壓 15-30 秒
+**滾筒**：大面積筋膜放鬆，緩慢滾動
+**花生球**：脊椎兩側肌肉放鬆，不要直接壓脊椎骨
+
+== 回答規則 ==
+1. 當使用者問到 Bikefit 或 Saddle Fit 時，用上述專業知識回答，並附上對應的說明圖片
+2. 當使用者描述身體不適時，先簡短分析原因（3-5句），然後問：
    「您目前比較想了解的是：
-   A. 單車 Bikefit 調整建議
-   B. 肌肉伸展與放鬆方法」
-
-2. 根據使用者選擇 A 或 B，再進一步給建議，每次最多問 2-3 個問題。
-
-3. 當使用者選擇 A（Bikefit）或表達想預約、想進一步評估、想知道費用時，回覆：
-   「建議您前往我們的專業 Bikefit 預約頁面，填寫基本資料後我們會安排專人與您聯繫：
-   https://orange-fruit-ai-bikefit.vercel.app/」
-
-4. 回答長度適中，不要一次給太多資訊。
-
-5. 反問時每個問題單獨一行，問題之間空一行，不使用任何符號或 Markdown。
-
-6. 若問題與單車或運動完全無關，簡短回覆無法協助並引導回運動相關問題。
-
-7. 絕對不要只是重複使用者說的話，要給出有意義的回應和建議。
-
-8. 「您目前比較想了解的是：A. 單車 Bikefit 調整建議 B. 肌肉伸展與放鬆方法」這個問題在同一段對話中只能問一次。使用者若已選過 A 或 B，就直接根據選擇給建議，不再重複問這個問題。
-
-9. 若使用者只是提到車款名稱（例如 Merida Reacto、Giant TCR），但沒有問任何問題，
-   不要介紹車款特色，直接回覆系統提示中的剩餘額度訊息，格式如下：
-   「收到！請問您想了解什麼呢？今天還有 {remaining} 次免費諮詢額度可以使用。」
-   然後等待使用者提問，不要主動問 A/B 選項。
+   A. Bikefit 調整建議
+   B. 伸展與自我放鬆方法」
+3. 當使用者選擇 A 或明確表達想預約時，引導到：https://orange-fruit-ai-bikefit.vercel.app/
+4. 回答要簡潔，不要一次給太多資訊
+5. **絕對不要與 Rich Menu 選單的關鍵字衝突**，選單關鍵字包括：
+   #單車伸展放鬆、#按摩球、#髖關節、#車架幾何、#車架對照
+6. 若使用者只提到車款名稱但沒問問題，回覆：
+   「收到！請問您想了解什麼呢？今天還有 {remaining} 次免費諮詢額度。」
+7. 同一段對話中「A/B 選項」只能問一次
 '''
 
 BASE_IMG_URL = "https://raw.githubusercontent.com/chenpu87/Line-bot/main/images"
 
+# ==========================================
+# 更新 IMAGE_DATABASE：新增 Bikefit 和 Saddle
+# ==========================================
 IMAGE_DATABASE = {
-    "#伸展放鬆": {
-        "text": "🚴 騎車後的伸展非常重要！\n\n以下是背部伸展系列動作，每個動作維持 30 秒：",
+    "#單車伸展放鬆": {
+        "text": "🚴 單車伸展放鬆的重要性\n\n騎車後的伸展可以：\n✅ 預防肌肉緊繃與僵硬\n✅ 改善柔軟度與關節活動度\n✅ 促進恢復、減少痠痛\n✅ 預防運動傷害\n\n以下是重點部位的伸展動作：",
         "images": [
             f"{BASE_IMG_URL}/back/stretch_back_full_back.jpg",
             f"{BASE_IMG_URL}/back/stretch_back_lower_back.jpg",
             f"{BASE_IMG_URL}/back/stretch_back_lumbar.jpg",
         ]
     },
-    "#核心訓練": {
-        "text": "💪 核心訓練對騎士非常重要！\n\n強健的核心肌群能提升踩踏效率、保護下背、維持良好騎姿。",
-        "images": []
-    },
-    "#按摩球教學": {
-        "text": "🎾 按摩球使用教學\n\n按摩球可以針對深層肌肉進行放鬆，特別適合處理激痛點。",
+    "#按摩球": {
+        "text": "🎾 按摩球使用教學\n\n按摩球可以針對深層激痛點進行放鬆。\n\n**適合部位**：肩胛骨、臀部、足底\n**使用技巧**：定點加壓 15-30 秒，慢慢呼吸放鬆",
         "images": [
             f"{BASE_IMG_URL}/massage_ball/bikefit_massage_ball_1.jpg",
             f"{BASE_IMG_URL}/massage_ball/bikefit_massage_ball_2.jpg",
         ]
     },
-    "#滾筒上半身": {
-        "text": "🎯 滾筒放鬆上半身\n\n滾筒可以放鬆大面積肌肉，改善筋膜沾黏。",
-        "images": [f"{BASE_IMG_URL}/foam_roller/form_roller_upper_body.jpg"]
+    "#滾筒": {
+        "text": "🎯 滾筒放鬆教學\n\n滾筒可以進行大面積筋膜放鬆，改善肌肉彈性。\n\n**適合部位**：大腿、小腿、背部\n**使用技巧**：緩慢滾動，在痛點停留 20-30 秒",
+        "images": [
+            f"{BASE_IMG_URL}/foam_roller/form_roller_upper_body.jpg",
+            f"{BASE_IMG_URL}/foam_roller/form_roller_bottom_body.jpg",
+        ]
     },
-    "#滾筒下半身": {
-        "text": "🎯 滾筒放鬆下半身\n\n大腿、小腿的肌肉放鬆能大幅改善騎乘舒適度。",
-        "images": [f"{BASE_IMG_URL}/foam_roller/form_roller_bottom_body.jpg"]
-    },
-    "#花生球教學": {
-        "text": "🥜 花生球放鬆下背部\n\n花生球特別適合脊椎兩側的肌肉放鬆，使用時請小心不要直接壓到脊椎。",
+    "#花生球": {
+        "text": "🥜 花生球下背放鬆\n\n花生球特別適合脊椎兩側的豎脊肌放鬆。\n\n**使用方法**：\n1. 躺下，將花生球置於下背兩側\n2. 不要直接壓脊椎骨\n3. 輕輕滾動或定點加壓",
         "images": [
             f"{BASE_IMG_URL}/peanut_ball/peanut_ball_relax_pos_1.jpg",
             f"{BASE_IMG_URL}/peanut_ball/peanut_ball_relax_pos_2.jpg",
@@ -254,49 +289,42 @@ IMAGE_DATABASE = {
         ]
     },
     "#髖關節": {
-        "text": "🦵 髖關節伸展與訓練\n\n良好的髖關節活動度對騎車非常重要！",
+        "text": "🦵 髖關節訓練與伸展\n\n良好的髖關節活動度對騎車非常重要！\n\n**為什麼重要？**\n✅ 增加踩踏效率\n✅ 減少膝蓋與下背代償\n✅ 改善騎乘姿勢",
         "images": [
             f"{BASE_IMG_URL}/hip_joint/hip_joint_training_pos_1.jpg",
             f"{BASE_IMG_URL}/hip_joint/hip_joint_training_pos_2.jpg",
             f"{BASE_IMG_URL}/hip_joint/hip_joint_training_pos_3.jpg",
         ]
     },
-    "#Bikefit常識": {
-        "text": "🚲 Bikefit 小常識\n\n正確的 Bikefit 能大幅提升騎乘舒適度和效率！",
+    "#Bikefit": {
+        "text": "🚲 什麼是 Bikefit？\n\nBikefit 是專業的單車設定服務，讓您的車子完美貼合身體。\n\n**包含項目**：\n✅ 身體評估（柔軟度、關節活動度）\n✅ 座墊高度與前後位置\n✅ 把手高低與距離\n✅ 卡踏位置與角度\n✅ 動態騎乘分析\n\n**好處**：\n✅ 提升效率、降低傷害風險\n✅ 增加舒適度\n✅ 讓每一公里都更順、更快！",
         "images": [
             f"{BASE_IMG_URL}/bikefit/bikefit_saddle_fit.jpg",
             f"{BASE_IMG_URL}/bikefit/bikefit_cleat_fit.jpg",
             f"{BASE_IMG_URL}/bikefit/bikefit_the_hx_hy.jpg",
         ]
     },
-    "#騎士重置": {
-        "text": "🔄 騎士每日重置動作\n\n每天 5 分鐘，放鬆緊繃的肌肉，改善久坐造成的腰痠背痛！",
+    "#Saddle": {
+        "text": "🪑 什麼是 Saddle Fit（坐墊適配）？\n\nSaddle Fit 是選擇最適合您的坐墊！\n\n**為什麼重要？**\n✅ 每個人坐骨寬度不同\n✅ 精準測量減少麻木、降低壓迫\n✅ 穩定骨盆，優化效率\n✅ 減少會陰部壓迫風險\n\n**關鍵參數**：\n1️⃣ 坐骨寬度（SBW）→ 決定坐墊寬度\n2️⃣ 軀幹角度 → 決定坐墊形狀\n\n**騎乘風格對應**：\n🚴 休閒：90° 軀幹，寬支撐\n🚴 公路：45° 軀幹，兼顧支撐\n🚴 競速：<30° 軀幹，最大活動空間",
         "images": [
-            f"{BASE_IMG_URL}/cyclist_reset/reset_warm_up_cool%20_down_1.jpg",
-            f"{BASE_IMG_URL}/cyclist_reset/reset_warm_up_cool%20_down_2.jpg",
+            f"{BASE_IMG_URL}/bikefit/bikefit_saddle_fit.jpg",
         ]
     },
 }
 
 KEYWORD_IMAGE_MAP = {
-    "肩膀": [
-        f"{BASE_IMG_URL}/shoulder/shoulder_upper_chest_shoulder.jpg",
-        f"{BASE_IMG_URL}/shoulder/shoulder_upper_chest_back.jpg",
-    ],
-    "背部": [
-        f"{BASE_IMG_URL}/back/stretch_back_full_back.jpg",
-        f"{BASE_IMG_URL}/back/stretch_back_lower_back.jpg",
-    ],
-    "下背": [
-        f"{BASE_IMG_URL}/back/stretch_back_lower_back.jpg",
-        f"{BASE_IMG_URL}/back/stretch_back_lumbar.jpg",
-    ],
-    "髖關節": [f"{BASE_IMG_URL}/hip_joint/hip_joint_training_pos_1.jpg"],
-    "bikefit": [f"{BASE_IMG_URL}/bikefit/bikefit_the_hx_hy.jpg"],
+    "肩膀": [f"{BASE_IMG_URL}/shoulder/shoulder_upper_chest_shoulder.jpg", f"{BASE_IMG_URL}/shoulder/shoulder_upper_chest_back.jpg"],
+    "背部": [f"{BASE_IMG_URL}/back/stretch_back_full_back.jpg", f"{BASE_IMG_URL}/back/stretch_back_lower_back.jpg"],
+    "下背": [f"{BASE_IMG_URL}/back/stretch_back_lower_back.jpg", f"{BASE_IMG_URL}/back/stretch_back_lumbar.jpg"],
+    "bikefit": [f"{BASE_IMG_URL}/bikefit/bikefit_saddle_fit.jpg"],
+    "saddle": [f"{BASE_IMG_URL}/bikefit/bikefit_saddle_fit.jpg"],
+    "坐墊": [f"{BASE_IMG_URL}/bikefit/bikefit_saddle_fit.jpg"],
+    "hx": [f"{BASE_IMG_URL}/bikefit/bikefit_the_hx_hy.jpg"],
+    "hy": [f"{BASE_IMG_URL}/bikefit/bikefit_the_hx_hy.jpg"],
 }
 
 # ==========================================
-# 工具函數
+# 保留你的所有工具函數
 # ==========================================
 def get_today():
     return datetime.date.today().isoformat()
@@ -313,8 +341,8 @@ def add_count(user_id):
     user_daily_count[user_id]["count"] += 1
 
 def is_service_hours():
-    utc_now  = datetime.datetime.utcnow()
-    tw_now   = utc_now + datetime.timedelta(hours=TZ_OFFSET)
+    utc_now = datetime.datetime.utcnow()
+    tw_now  = utc_now + datetime.timedelta(hours=TZ_OFFSET)
     return SERVICE_START <= tw_now.hour < SERVICE_END
 
 def _reply(reply_token, messages):
@@ -366,17 +394,23 @@ def handle_rich_menu_command(event, command):
         else:
             handle_ai_conversation(event, command)
         return
-    data     = IMAGE_DATABASE[command]
+    
+    data = IMAGE_DATABASE[command]
     messages = [_text(data["text"])] + [_img(u) for u in data["images"]]
+    
+    # Bikefit 和 Saddle 加上預約連結
+    if command in ["#Bikefit", "#Saddle"]:
+        messages.append(_text(
+            "💡 想要專業的 Bikefit 服務嗎？\n\n立即預約：\nhttps://orange-fruit-ai-bikefit.vercel.app/"
+        ))
+    
     _reply(event.reply_token, messages)
 
 def handle_ai_conversation(event, user_text):
     user_id = event.source.user_id
-
-    # 過濾疑似車款輸入（避免流程重啟後被 AI 接走）
     cleaned = user_text.strip()
 
-    # 純數字/mm 過濾
+    # 過濾疑似車款輸入
     if re.match(r'^-?[0-9]+([.][0-9]+)?(mm|deg|degree)?$', cleaned, re.IGNORECASE):
         _reply(event.reply_token, [_text(
             "請傳送指令開始查詢：\n\n"
@@ -385,12 +419,10 @@ def handle_ai_conversation(event, user_text):
         )])
         return
 
-    # 車款格式過濾（品牌 車款 年份 尺寸）例如 "Merida Reacto 2026 S"
     parts = cleaned.split()
     if len(parts) >= 3:
         last = parts[-1].upper()
         has_size = last in SIZE_OPTIONS or re.match(r'^\d{2,3}$', last)
-        has_year = any(re.match(r'^20\d{2}$', p) for p in parts[1:-1])
         if has_size and len(parts) >= 3:
             _reply(event.reply_token, [_text(
                 "看起來您在輸入車款資訊 🚴\n\n"
@@ -403,9 +435,10 @@ def handle_ai_conversation(event, user_text):
     if is_over_limit(user_id):
         _reply(event.reply_token, [_text(
             "感謝您今日的諮詢！您今天的免費諮詢次數已用完。\n\n"
-            "歡迎直接預約我們的專業 Bikefit 服務，讓教練為您進行完整評估：\n\n"
+            "歡迎直接預約我們的專業 Bikefit 服務：\n\n"
             "https://orange-fruit-ai-bikefit.vercel.app/"
-        )]); return
+        )])
+        return
 
     add_count(user_id)
     _reply(event.reply_token, [_text("🤔 小橙正在思考中...")])
@@ -415,10 +448,7 @@ def handle_ai_conversation(event, user_text):
     conversation_history[user_id].append({"role": "user", "parts": [user_text]})
 
     try:
-        # 計算今日剩餘次數
         remaining = DAILY_LIMIT - user_daily_count[user_id]["count"]
-
-        # 動態系統提示：加入剩餘次數
         dynamic_prompt = SYSTEM_PROMPT + f"""
 
 [系統資訊] 使用者今日剩餘免費諮詢次數：{remaining} 次（共 {DAILY_LIMIT} 次）
@@ -437,13 +467,13 @@ def handle_ai_conversation(event, user_text):
     messages = [_text(reply_text)]
     for kw, imgs in KEYWORD_IMAGE_MAP.items():
         if kw in user_text.lower():
-            messages += [_img(u) for u in imgs[:2]]; break
+            messages += [_img(u) for u in imgs[:2]]
+            break
 
     _push(user_id, messages)
 
 def handle_geo_command(event, command):
     user_id = event.source.user_id
-    # ★ 強制清除所有舊狀態（包含 step=2 的半途狀態）
     if user_id in geo_states:
         del geo_states[user_id]
 
@@ -470,24 +500,20 @@ def handle_geo_command(event, command):
             "（年份可省略，尺寸支援英文或數字）"
         )])
 
-# ── VelogicFit 對話流程 ──────────────────────────────────────────────────────
+# 保留你的所有 VelogicFit 和 BikeInsights 流程函數
 def handle_velogicfit_flow(event, user_id, text):
     state = geo_states[user_id]
     step  = state["step"]
     data  = state["data"]
 
     if step == 1:
-        data["brand"] = text; state["step"] = 2
-        _reply(event.reply_token, [_text(
-            f"品牌：{text} ✅\n\n步驟 2／6　請輸入車款型號\n"
-            f"例如：Reacto、TCR、Madone"
-        )])
+        data["brand"] = text
+        state["step"] = 2
+        _reply(event.reply_token, [_text(f"品牌：{text} ✅\n\n步驟 2／6　請輸入車款型號\n例如：Reacto、TCR、Madone")])
 
     elif step == 2:
-        # 若用戶把年份一起輸入（如「One 2026」），自動拆出年份
         _parts = text.strip().split()
-        import re as _re
-        if len(_parts) >= 2 and _re.match(r"^20\d{2}$", _parts[-1]):
+        if len(_parts) >= 2 and re.match(r"^20\d{2}$", _parts[-1]):
             data["year"]  = _parts[-1]
             data["model"] = " ".join(_parts[:-1])
         else:
@@ -505,11 +531,12 @@ def handle_velogicfit_flow(event, user_id, text):
         )])
 
     elif step == 3:
-        # 尺寸自由輸入：支援英文(S/M/L/XL)或數字(47/52/54/56/58)
         val = text.strip().upper()
         if not val:
-            _reply(event.reply_token, [_text("❌ 請輸入尺寸")]); return
-        data["size"] = val; state["step"] = 4
+            _reply(event.reply_token, [_text("❌ 請輸入尺寸")])
+            return
+        data["size"] = val
+        state["step"] = 4
         _reply(event.reply_token, [_text(
             f"尺寸：{val} ✅\n\n步驟 4／6　請輸入龍頭長度（mm）\n\n"
             f"65 / 70 / 75 / 80 / 85 / 90 / 95 / 100 / 105\n"
@@ -520,11 +547,11 @@ def handle_velogicfit_flow(event, user_id, text):
         val = text.replace("mm", "").strip()
         if val not in STEM_LENGTH_OPTIONS:
             _reply(event.reply_token, [_text(
-                "❌ 請輸入有效龍頭長度（65-150mm，每 5mm）\n\n"
-                "65 / 70 / 75 / 80 / 85 / 90 / 95 / 100 / 105\n"
-                "110 / 115 / 120 / 125 / 130 / 135 / 140 / 145 / 150"
-            )]); return
-        data["stem_length"] = val; state["step"] = 5
+                "❌ 請輸入有效龍頭長度（65-150mm，每 5mm）"
+            )])
+            return
+        data["stem_length"] = val
+        state["step"] = 5
         _reply(event.reply_token, [_text(
             f"龍頭長度：{val}mm ✅\n\n步驟 5／6　請選擇龍頭角度\n"
             f"請回覆：-6 / -8 / -10 / -12 / -17\n（不填寫預設 -8°）"
@@ -532,8 +559,10 @@ def handle_velogicfit_flow(event, user_id, text):
 
     elif step == 5:
         val = text.replace("°", "").strip()
-        if not re.match(r"^-?\d+$", val): val = "-8"
-        data["stem_angle"] = val; state["step"] = 6
+        if not re.match(r"^-?\d+$", val):
+            val = "-8"
+        data["stem_angle"] = val
+        state["step"] = 6
         _reply(event.reply_token, [_text(
             f"龍頭角度：{val}° ✅\n\n步驟 6／6　請選擇墊片（Spacer）高度\n"
             f"請回覆：10 / 15 / 20 / 25 / 30 / 35 / 40 / 45（mm）"
@@ -542,26 +571,23 @@ def handle_velogicfit_flow(event, user_id, text):
     elif step == 6:
         val = text.replace("mm", "").strip()
         if val not in SPACER_OPTIONS:
-            _reply(event.reply_token, [_text(
-                "❌ 請輸入有效墊片高度：10 / 15 / 20 / 25 / 30 / 35 / 40 / 45（mm）"
-            )]); return
+            _reply(event.reply_token, [_text("❌ 請輸入有效墊片高度：10 / 15 / 20 / 25 / 30 / 35 / 40 / 45（mm）")])
+            return
 
         data["spacer"] = val
         geo_states.pop(user_id, None)
 
-        # 立即 reply 確認資料
         _reply(event.reply_token, [_text(
-            f"\u2705 確認資料\n"
-            f"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+            f"✅ 確認資料\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
             f"品牌：{data['brand']}\n"
             f"車款：{data['model']} ({data.get('year', '')})\n"
             f"尺寸：{data['size']}\n"
             f"龍頭長度：{data['stem_length']}mm\n"
-            f"龍頭角度：{data['stem_angle']}\u00b0\n"
+            f"龍頭角度：{data['stem_angle']}°\n"
             f"墊片高度：{data['spacer']}mm\n"
-            f"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501"
+            f"━━━━━━━━━━━━━━━━━━━━"
         )])
-        # 不需要 "計算中" 訊息，連結立即回傳
 
         def _bg(uid, d):
             try:
@@ -572,44 +598,33 @@ def handle_velogicfit_flow(event, user_id, text):
                 hx_img = f"{BASE_IMG_URL}/bikefit/bikefit_the_hx_hy.jpg"
                 if bar_x and bar_y:
                     _push(uid, [_text(
-                        f"\U0001f4ca HX / HY 計算結果\n"
-                        f"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-                        f"\U0001f539 HX (Bar X) ：{bar_x} mm\n"
-                        f"\U0001f539 HY (Bar Y) ：{bar_y} mm\n"
-                        f"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+                        f"📊 HX / HY 計算結果\n"
+                        f"━━━━━━━━━━━━━━━━━━━━\n"
+                        f"🔹 HX (Bar X) ：{bar_x} mm\n"
+                        f"🔹 HY (Bar Y) ：{bar_y} mm\n"
+                        f"━━━━━━━━━━━━━━━━━━━━\n"
                         f"車款：{d['brand']} {d['model']} ({d['size']})\n"
-                        f"龍頭：{d['stem_length']}mm / {d['stem_angle']}\u00b0 / {d['spacer']}mm spacer\n\n"
+                        f"龍頭：{d['stem_length']}mm / {d['stem_angle']}° / {d['spacer']}mm spacer\n\n"
                         f"輸入 #車架幾何 查詢其他車款"
-                    )])
-                    _push(uid, [_img(hx_img)])
+                    ), _img(hx_img)])
                 elif link:
-                    _push(uid, [
-                        _text(
-                            f"\U0001f517 請點連結查看 HX / HY\n"
-                            f"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-                            f"車款：{d['brand']} {d['model']} ({d['size']})\n"
-                            f"龍頭：{d['stem_length']}mm / {d['stem_angle']}\u00b0 / {d['spacer']}mm spacer\n"
-                            f"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-                            f"{link}\n\n"
-                            f"\U0001f4cc 開啟後捲到 Handlebar position 區塊"
-                        ),
-                        _img(hx_img)
-                    ])
-                else:
                     _push(uid, [_text(
-                        f"\u26a0\ufe0f 找不到此車款\n"
-                        f"品牌：{d['brand']}  車款：{d['model']}\n"
-                        f"請至 {VELOGICFIT_BASE} 手動搜尋\n"
-                        f"例如：Giant TCR Advanced / Specialized Tarmac SL8"
-                    )])
+                        f"🔗 請點連結查看 HX / HY\n"
+                        f"━━━━━━━━━━━━━━━━━━━━\n"
+                        f"車款：{d['brand']} {d['model']} ({d['size']})\n"
+                        f"龍頭：{d['stem_length']}mm / {d['stem_angle']}° / {d['spacer']}mm spacer\n"
+                        f"━━━━━━━━━━━━━━━━━━━━\n"
+                        f"{link}\n\n"
+                        f"📌 開啟後捲到 Handlebar position 區塊"
+                    ), _img(hx_img)])
+                else:
+                    _push(uid, [_text(f"⚠️ 找不到此車款\n品牌：{d['brand']}  車款：{d['model']}\n請至 {VELOGICFIT_BASE} 手動搜尋")])
             except Exception as e:
                 logger.error(f"BG error: {e}")
                 _push(uid, [_text("計算失敗，請輸入 #車架幾何 重試")])
 
         threading.Thread(target=_bg, args=(user_id, data.copy()), daemon=True).start()
 
-
-# ── BikeInsights 對話流程 ────────────────────────────────────────────────────
 def handle_bikeinsights_flow(event, user_id, text):
     state = geo_states[user_id]
     step  = state["step"]
@@ -618,24 +633,17 @@ def handle_bikeinsights_flow(event, user_id, text):
     if step == 1:
         parsed = _parse_bike(text)
         if not parsed:
-            _reply(event.reply_token, [_text(
-                "❌ 格式錯誤\n\n請輸入：品牌 車款 [年份] 尺寸\n"
-                "例如：Merida Reacto 2026 S"
-            )]); return
-        data["bike1"] = parsed; state["step"] = 2
-        _reply(event.reply_token, [_text(
-            f"第一台：{_bdisp(parsed)} ✅\n\n"
-            f"第二台車　請輸入：\n"
-            f"格式：品牌 車款 [年份] 尺寸"
-        )])
+            _reply(event.reply_token, [_text("❌ 格式錯誤\n\n請輸入：品牌 車款 [年份] 尺寸\n例如：Merida Reacto 2026 S")])
+            return
+        data["bike1"] = parsed
+        state["step"] = 2
+        _reply(event.reply_token, [_text(f"第一台：{_bdisp(parsed)} ✅\n\n第二台車　請輸入：\n格式：品牌 車款 [年份] 尺寸")])
 
     elif step == 2:
         parsed = _parse_bike(text)
         if not parsed:
-            _reply(event.reply_token, [_text(
-                "❌ 格式錯誤\n\n請輸入：品牌 車款 [年份] 尺寸\n"
-                "例如：Giant TCR 2025 M"
-            )]); return
+            _reply(event.reply_token, [_text("❌ 格式錯誤\n\n請輸入：品牌 車款 [年份] 尺寸\n例如：Giant TCR 2025 M")])
+            return
 
         data["bike2"] = parsed
         geo_states.pop(user_id, None)
@@ -665,33 +673,21 @@ def handle_bikeinsights_flow(event, user_id, text):
             )])
             notify_owner(data["bike1"], data["bike2"], user_id)
 
-# ==========================================
-# VelogicFit：Playwright 自動抓 Bar X / Bar Y
-# ==========================================
 def _scrape_bar_values(url: str) -> dict:
-    """
-    用 Playwright 開啟 VelogicFit 頁面，等待 Handlebar position 出現後抓值。
-    回傳 {"bar_x": "xxx", "bar_y": "xxx"} 或 {"error": "..."}
-    """
     if not PLAYWRIGHT_AVAILABLE:
         logger.warning("Playwright 未安裝，回傳連結模式")
         return {"error": "playwright_not_installed"}
-
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--single-process"])
             page    = browser.new_page()
             page.goto(url, timeout=30000)
-
-            # 等待 Blazor 渲染完成（已驗證：td.numeric-value 出現才有數值）
             try:
                 page.wait_for_selector("td.numeric-value", timeout=30000)
                 page.wait_for_timeout(3000)
             except PWTimeout:
                 browser.close()
                 return {"error": "timeout_waiting_for_values"}
-
-            # JS 精確抓取（Chrome 驗證過：Factor One 56 = Bar X:516, Bar Y:633）
             result = page.evaluate("""() => {
                 const out = {};
                 Array.from(document.querySelectorAll('td'))
@@ -719,7 +715,6 @@ def _scrape_bar_values(url: str) -> dict:
                     });
                 return out;
             }""")
-
             browser.close()
             logger.info(f"Scraped: {result}")
             bar_x = result.get("Bar X", "")
@@ -728,19 +723,11 @@ def _scrape_bar_values(url: str) -> dict:
                 return {"bar_x": bar_x, "bar_y": bar_y}
             logger.warning(f"Values not found: {result}")
             return {"error": "values_not_found"}
-
     except Exception as e:
         logger.error(f"Playwright scrape error: {e}")
         return {"error": str(e)[:100]}
 
-
 def _run_velogicfit_api(data: dict) -> dict:
-    """
-    1. 從對照表 / 自動生成取得 fm/fg 代碼
-    2. 組出完整 URL（含 &hb=&hm=&hw=）
-    3. 用 Playwright 抓 Bar X / Bar Y 數值
-    回傳 {"bar_x":..., "bar_y":..., "link":...} 或 {"link":...} 或 {"link": None}
-    """
     brand       = data["brand"]
     model       = data["model"]
     year        = data.get("year", "")
@@ -751,11 +738,9 @@ def _run_velogicfit_api(data: dict) -> dict:
 
     logger.info(f"VelogicFit: {brand} {model} {year} {size} sl={stem_length} sa={stem_angle} sp={spacer}")
 
-    # 1. 查代碼對照表（完全匹配）
     key     = (brand.lower(), model.lower(), year)
     fm_code = FRAME_CODE_MAP.get(key, "")
 
-    # 1b. 年份不符 → 找同車款最新年份
     if not fm_code and year:
         for y in ["2026", "2025", "2024", "2023"]:
             alt_key = (brand.lower(), model.lower(), y)
@@ -764,7 +749,6 @@ def _run_velogicfit_api(data: dict) -> dict:
                 logger.info(f"Year fallback: {year} → {y}, code={fm_code}")
                 break
 
-    # 2. 對照表找不到 → 自動生成代碼
     if not fm_code:
         year_short = year[-2:] if year and len(year) >= 2 else "26"
         fm_code = _guess_frame_code(brand, model, year_short)
@@ -781,18 +765,14 @@ def _run_velogicfit_api(data: dict) -> dict:
     )
     logger.info(f"Generated link: {link}")
 
-    # 3. 用 Playwright 直接抓數值
     scraped = _scrape_bar_values(link)
     if scraped.get("bar_x") and scraped.get("bar_y"):
         return {"bar_x": scraped["bar_x"], "bar_y": scraped["bar_y"], "link": link}
 
-    # Playwright 失敗 → 回傳連結讓客人自己點
     logger.warning(f"Scrape failed ({scraped.get('error')}), returning link only")
     return {"link": link}
 
-
 def _guess_frame_code(brand: str, model: str, year_short: str) -> str:
-    """嘗試自動生成 VelogicFit 車款代碼（品牌3碼-車款3碼-年份2碼）"""
     brand_map = {
         "merida": "MER", "giant": "GIA", "trek": "TRE",
         "specialized": "SPE", "canyon": "CAN", "cervelo": "CER",
@@ -802,11 +782,6 @@ def _guess_frame_code(brand: str, model: str, year_short: str) -> str:
         "cannondale": "CND", "bianchi": "BIA", "ridley": "RID",
         "focus": "FOC", "rose": "ROS", "cube": "CUB",
         "no.22": "N22", "no22": "N22", "number 22": "N22",
-        "lapierre": "LAP", "storck": "STO", "rose": "ROS",
-        "cipollini": "CIP", "dolan": "DOL", "fuji": "FUJ",
-        "felt": "FEL", "kona": "KON", "de rosa": "DER",
-        "kuota": "KUO", "titici": "TIT", "argon 18": "A18",
-        "argon18": "A18", "3t": "3TC", "cervélo": "CER",
     }
     brand_code  = brand_map.get(brand.lower(), brand[:3].upper())
     model_clean = re.sub(r'[^a-zA-Z0-9]', '', model).upper()
@@ -815,21 +790,20 @@ def _guess_frame_code(brand: str, model: str, year_short: str) -> str:
         return ""
     return f"{brand_code}-{model_code}-{year_short}"
 
-
-# ==========================================
-# 解析車款輸入
-# ==========================================
 def _parse_bike(text):
     parts = text.strip().split()
-    if len(parts) < 3: return None
+    if len(parts) < 3:
+        return None
     size = parts[-1].upper()
-    # 接受英文尺寸(S/M/L)或數字尺寸(47/54/56/58)
     if not (size in SIZE_OPTIONS or re.match(r"^\d{2,3}$", size)):
         return None
-    remaining = parts[:-1]; year = ""
+    remaining = parts[:-1]
+    year = ""
     if remaining and re.match(r"^20\d{2}$", remaining[-1]):
-        year = remaining[-1]; remaining = remaining[:-1]
-    if len(remaining) < 2: return None
+        year = remaining[-1]
+        remaining = remaining[:-1]
+    if len(remaining) < 2:
+        return None
     return {"brand": remaining[0], "model": " ".join(remaining[1:]), "year": year, "size": size}
 
 def _bdisp(bike):
