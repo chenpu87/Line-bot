@@ -88,6 +88,7 @@ FRAME_CODE_MAP = {
     ("pinarello", "prince", "2026"): "PIN-PRI-26",
     ("colnago", "v4rs", "2026"): "COL-V4R-26",
     ("colnago", "v4rs", "2025"): "COL-V4R-25",
+    ("colnago", "V1RS",): "COL-Y1RS-26",
     ("scott", "addict rc", "2026"): "SCO-ARC-26",
     ("scott", "addict rc", "2025"): "SCO-ARC-25",
     ("scott", "foil rc", "2026"): "SCO-FRC-26",
@@ -95,12 +96,15 @@ FRAME_CODE_MAP = {
     ("bmc", "teammachine slr", "2025"): "BMC-TMS-25",
     ("orbea", "orca aero", "2026"): "ORB-OAR-26",
     ("orbea", "orca", "2026"): "ORB-ORC-26",
-    ("factor", "one", "2026"): "FAC-ONE-26",
-    ("factor", "one", "2025"): "FAC-ONE-25",
+    ("factor", "one", "2026"): "FAC-ONE25",
+    ("factor", "one",): "FAC-ONE-25",
     ("factor", "o2", "2026"): "FAC-O2-26",
-    ("factor", "o2", "2025"): "FAC-O2-25",
-    ("factor", "ostro vam", "2026"): "FAC-OVA-26",
-    ("factor", "ostro vam", "2025"): "FAC-OVA-25",
+    ("factor", "o2 VAM", "2026"): "FAC-O2-VAM-26",
+    ("factor", "ostro vam", "2026"): "FAC-OSTRVAM-26",
+    ("factor", "ostro vam", ): "FAC-OST-VAM",
+    ("ridley", "Noah 3.0",): "RID-NOA-30","RID-NOA-FAS30",
+    ("ridley", "Noah Fast","2025"): "RID-NOA-FAS30",
+    ("ridley", "Noah Fast","2026"): "RID-NOA-FAS30",
     ("ridley", "falcn rs", "2026"): "RID-FRS-26",
     ("ridley", "falcn rs", "2025"): "RID-FRS-25",
     ("ridley", "falcn rs", "2024"): "RID-FRS-24",
@@ -111,11 +115,11 @@ FRAME_CODE_MAP = {
     ("ridley", "helium slx", "2026"): "RID-HSL-26",
     ("ridley", "helium slx", "2025"): "RID-HSL-25",
     ("ridley", "kanzo fast", "2026"): "RID-KZF-26",
-    ("wilier", "zero slr", "2026"): "WIL-ZSL-26",
-    ("wilier", "zero slr", "2025"): "WIL-ZSL-25",
-    ("wilier", "zero slr", "2024"): "WIL-ZSL-24",
-    ("wilier", "filante slr", "2026"): "WIL-FSL-26",
-    ("wilier", "filante slr", "2025"): "WIL-FSL-25",
+    ("wilier", "0 slr", ): "WIL-WIL-024",
+    ("wilier", "0 slr", "2025"): "WIL-WIL-024",
+    ("wilier", "0slr",): "WIL-WIL-024",
+    ("wilier", "filante ID2", "2026"): "WIL-FIL-ID2-26",
+    ("wilier", "filante slr", "2025"): "WIL-FIL-SLR25",
     ("wilier", "garda", "2026"): "WIL-GAR-26",
     ("wilier", "garda", "2025"): "WIL-GAR-25",
     ("wilier", "cento10 sl", "2026"): "WIL-CSL-26",
@@ -125,17 +129,17 @@ FRAME_CODE_MAP = {
     ("wilier", "cento10 pro", "2025"): "WIL-CPR-25",
     ("wilier", "rave slr", "2026"): "WIL-RSL-26",
     ("wilier", "rave slr", "2025"): "WIL-RSL-25",
-    ("time", "fluidity ultra", "2026"): "TIM-FLU-26",
-    ("time", "fluidity ultra", "2025"): "TIM-FLU-25",
-    ("time", "fluidity", "2026"): "TIM-FLU-26",
-    ("time", "fluidity", "2025"): "TIM-FLU-25",
-    ("time", "scylon ultra", "2026"): "TIM-SCU-26",
-    ("time", "scylon ultra", "2025"): "TIM-SCU-25",
-    ("time", "scylon", "2026"): "TIM-SCU-26",
-    ("time", "scylon", "2025"): "TIM-SCU-25",
-    ("time", "alpe d'huez", "2026"): "TIM-ADH-26",
-    ("time", "alpe d'huez", "2025"): "TIM-ADH-25",
-    ("time", "alpe dhuez", "2026"): "TIM-ADH-26",
+    ("time", "fluidity", "2026"): "TIM-FLUID-25",
+    ("time", "fluidity", "2025"): "TIM-FLUID-25",
+    ("time", "fluidity",  ): "TIM-FLUID-25",
+    ("time", "fluidity","Disc"): "TIM-FLUID-25",
+    ("time", "scylon", "2026"): "TIM-SCY25",
+    ("time", "scylon", "2025"): "TIM-SCY25",
+    ("time", "scylon", "2026"): "TIM-SCY25",
+    ("time", "scylon", "2025"): "TIM-SCY25",
+    ("time", "alpe d'huez", "2026"): "TIM-ALP-DHUDI",
+    ("time", "alpe d'huez", "2025"): "TIM-ALP-DHUDI",
+    ("time", "alpe dhuez", "2026"): "TIM-ALP-DHUDI6",
     ("no.22", "drifter", "2026"): "N22-DRI-26",
     ("no.22", "drifter", "2025"): "N22-DRI-25",
     ("no.22", "reactor", "2026"): "N22-REA-26",
@@ -186,15 +190,16 @@ Bikefit 是什麼？
 Bikefit 是一個專業的單車設定服務，目的是讓您的自行車完美貼合您的身體。透過精密測量、動態分析和專業調整，確保您在騎乘時獲得最佳的舒適度、效率和安全性。
 
 Bikefit 包含什麼？
-1. **身體評估**：測量您的柔軟度、關節活動度、骨盆寬度（坐骨寬度）
-2. **騎乘姿勢分析**：觀察您實際騎乘時的動態姿勢
-3. **單車調整**：
+1. ==身體評估==：測量您的柔軟度、關節活動度、骨盆寬度（坐骨寬度）
+
+2. ==騎乘姿勢分析 ==：觀察您實際騎乘時的動態姿勢
+3. ==單車調整 ==：
    - 座墊高度（Seat Post Height, SP）
    - 座墊前後位置（Seat Position）
    - 把手高低與距離
    - 卡踏位置與角度（Cleat Position）
    - 車把寬度
-4. **動態測試**：調整後的實際騎乘測試與微調
+4.  ==動態測試 ==：調整後的實際騎乘測試與微調
 
 Bikefit 的好處？
 ✅ 提升踩踏效率，減少能量浪費
@@ -316,7 +321,7 @@ KEYWORD_IMAGE_MAP = {
     "肩膀": [f"{BASE_IMG_URL}/shoulder/shoulder_upper_chest_shoulder.jpg", f"{BASE_IMG_URL}/shoulder/shoulder_upper_chest_back.jpg"],
     "背部": [f"{BASE_IMG_URL}/back/stretch_back_full_back.jpg", f"{BASE_IMG_URL}/back/stretch_back_lower_back.jpg"],
     "下背": [f"{BASE_IMG_URL}/back/stretch_back_lower_back.jpg", f"{BASE_IMG_URL}/back/stretch_back_lumbar.jpg"],
-    "bikefit": [f"{BASE_IMG_URL}/bikefit/bikefit_saddle_fit.jpg"],
+    "bikefit": [f"{BASE_IMG_URL}/bikefit/bikefit_the_hx_hy.jpg"],
     "saddle": [f"{BASE_IMG_URL}/bikefit/bikefit_saddle_fit.jpg"],
     "坐墊": [f"{BASE_IMG_URL}/bikefit/bikefit_saddle_fit.jpg"],
     "hx": [f"{BASE_IMG_URL}/bikefit/bikefit_the_hx_hy.jpg"],
