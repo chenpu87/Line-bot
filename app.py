@@ -102,7 +102,8 @@ FRAME_CODE_MAP = {
     ("factor", "o2 VAM", "2026"): "FAC-O2-VAM-26",
     ("factor", "ostro vam", "2026"): "FAC-OSTRVAM-26",
     ("factor", "ostro vam", ): "FAC-OST-VAM",
-    ("ridley", "Noah 3.0",): "RID-NOA-30","RID-NOA-FAS30",
+    ("ridley", "Noah 3.0",): "RID-NOA-30",
+    ("ridley", "Noah 3.0", "fast"): "RID-NOA-FAS30",
     ("ridley", "Noah Fast","2025"): "RID-NOA-FAS30",
     ("ridley", "Noah Fast","2026"): "RID-NOA-FAS30",
     ("ridley", "falcn rs", "2026"): "RID-FRS-26",
@@ -304,8 +305,6 @@ IMAGE_DATABASE = {
     "#Bikefit": {
         "text": "🚲 什麼是 Bikefit？\n\nBikefit 是專業的單車設定服務，讓您的車子完美貼合身體。\n\n**包含項目**：\n✅ 身體評估（柔軟度、關節活動度）\n✅ 座墊高度與前後位置\n✅ 把手高低與距離\n✅ 卡踏位置與角度\n✅ 動態騎乘分析\n\n**好處**：\n✅ 提升效率、降低傷害風險\n✅ 增加舒適度\n✅ 讓每一公里都更順、更快！",
         "images": [
-            f"{BASE_IMG_URL}/bikefit/bikefit_saddle_fit.jpg",
-            f"{BASE_IMG_URL}/bikefit/bikefit_cleat_fit.jpg",
             f"{BASE_IMG_URL}/bikefit/bikefit_the_hx_hy.jpg",
         ]
     },
