@@ -312,11 +312,32 @@ def handle_rich_menu_command(event, command):
 def handle_ai_conversation(event, user_text):
     user_id = event.source.user_id
 
-    # 過濾純數字/mm 訊息，避免流程結束後被 AI 接走
+    # 過濾疑似車款輸入（避免流程重啟後被 AI 接走）
     cleaned = user_text.strip()
+
+    # 純數字/mm 過濾
     if re.match(r'^-?[0-9]+([.][0-9]+)?(mm|deg|degree)?$', cleaned, re.IGNORECASE):
-        _reply(event.reply_token, [_text("請傳送指令開始查詢：\n\n#車架幾何  計算 HX / HY\n#車架對照  車架幾何對照圖")])
+        _reply(event.reply_token, [_text(
+            "請傳送指令開始查詢：\n\n"
+            "#車架幾何  計算 HX / HY\n"
+            "#車架對照  車架幾何對照圖"
+        )])
         return
+
+    # 車款格式過濾（品牌 車款 年份 尺寸）例如 "Merida Reacto 2026 S"
+    parts = cleaned.split()
+    if len(parts) >= 3:
+        last = parts[-1].upper()
+        has_size = last in SIZE_OPTIONS or re.match(r'^\d{2,3}$', last)
+        has_year = any(re.match(r'^20\d{2}$', p) for p in parts[1:-1])
+        if has_size and len(parts) >= 3:
+            _reply(event.reply_token, [_text(
+                "看起來您在輸入車款資訊 🚴\n\n"
+                "請先傳送指令開始：\n"
+                "#車架幾何  計算 HX / HY\n"
+                "#車架對照  車架幾何對照圖"
+            )])
+            return
 
     if is_over_limit(user_id):
         _reply(event.reply_token, [_text(
@@ -368,12 +389,13 @@ def handle_geo_command(event, command):
         _reply(event.reply_token, [_text(
             "📐 車架幾何對照\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
-            "第一台車　請輸入：\n"
+            "步驟 1／2　第一台車\n"
             "格式：品牌 車款 [年份] 尺寸\n\n"
             "範例：\n"
             "  Merida Reacto 2026 S\n"
-            "  Giant TCR 2025 M\n\n"
-            "（年份可省略）"
+            "  Giant TCR 2025 M\n"
+            "  Factor One 2026 56\n\n"
+            "（年份可省略，尺寸支援英文或數字）"
         )])
 
 # ── VelogicFit 對話流程 ──────────────────────────────────────────────────────
