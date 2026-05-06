@@ -983,9 +983,18 @@ def handle_hxhy_recommendation_flow(event, user_id, text):
     is_question = any(keyword in text for keyword in ["嗎", "？", "?", "是什麼", "如何", "怎麼", "怎樣", "為什麼"])
     
     if is_question:
-        # 使用者在問問題，不是要服務 → 轉給 AI 對話
+        # ★ 緊急修正：使用者在問問題，直接退出流程，不要轉發
         geo_states.pop(user_id, None)
-        handle_ai_conversation(event, text)
+        _reply(event.reply_token, [_text(
+            "收到！如果您想使用 HX/HY 推薦服務，請直接提供：\n\n"
+            "1️⃣ HX 數值\n"
+            "2️⃣ HY 數值\n"
+            "3️⃣ 想比較的 2-3 個車款\n\n"
+            "例如：\n"
+            "HX 450、HY 620\n"
+            "想比較 Merida Reacto 和 Giant TCR\n\n"
+            "或輸入「取消」退出"
+        )])
         return
     
     # 嘗試從文字中提取 HX、HY、車款
@@ -1000,8 +1009,7 @@ def handle_hxhy_recommendation_flow(event, user_id, text):
     # 提取車款（去除 HX/HY 後的文字）
     cleaned_text = re.sub(r'HX[：:=\s]*\d+|HY[：:=\s]*\d+', '', text, flags=re.IGNORECASE).strip()
     
-    # ★ 修正：只有當文字中包含明確的車款資訊（且不是問句）才視為有效
-    # 排除問句關鍵字
+    # ★ 修正：移除問句關鍵字
     cleaned_text = re.sub(r'(嗎|？|\?|是什麼|如何|怎麼|怎樣|為什麼|適合|可以)', '', cleaned_text).strip()
     
     if cleaned_text and len(cleaned_text) > 3:
@@ -1029,7 +1037,6 @@ def handle_hxhy_recommendation_flow(event, user_id, text):
         )])
         
         # ★ 修正：只在成功 reply 後才設定新狀態
-        # 這樣如果 webhook 重複觸發，第二次會被上面的檢查擋住
         geo_states[user_id] = {
             "mode": "hxhy_confirm",
             "data": data
