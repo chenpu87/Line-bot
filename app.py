@@ -360,11 +360,9 @@ KEYWORD_IMAGE_MAP = {
     "肩膀": [f"{BASE_IMG_URL}/shoulder/shoulder_upper_chest_shoulder.jpg", f"{BASE_IMG_URL}/shoulder/shoulder_upper_chest_back.jpg"],
     "背部": [f"{BASE_IMG_URL}/back/stretch_back_full_back.jpg", f"{BASE_IMG_URL}/back/stretch_back_lower_back.jpg"],
     "下背": [f"{BASE_IMG_URL}/back/stretch_back_lower_back.jpg", f"{BASE_IMG_URL}/back/stretch_back_lumbar.jpg"],
-    "bikefit": [f"{BASE_IMG_URL}/bikefit/bikefit_the_hx_hy.jpg"],
-    "saddle": [f"{BASE_IMG_URL}/bikefit/bikefit_saddle_fit.jpg"],
-    "坐墊": [f"{BASE_IMG_URL}/bikefit/bikefit_saddle_fit.jpg"],
-    "hx": [f"{BASE_IMG_URL}/bikefit/bikefit_the_hx_hy.jpg"],
-    "hy": [f"{BASE_IMG_URL}/bikefit/bikefit_the_hx_hy.jpg"],
+    # ★ 已移除 bikefit、saddle、坐墊、hx、hy 等關鍵字
+    # 原因：這些詞在對話中很常出現，會誤觸發重複發送圖片
+    # 如果需要 Bikefit 說明，請使用 Rich Menu 的 #Bikefit 指令
 }
 
 # ==========================================
