@@ -739,37 +739,6 @@ def handle_velogicfit_flow(event, user_id, text):
 
         threading.Thread(target=_bg, args=(user_id, data.copy()), daemon=True).start()
 
-                link   = result.get("link", "")
-                hx_img = f"{BASE_IMG_URL}/bikefit/bikefit_the_hx_hy.jpg"
-                if bar_x and bar_y:
-                    _push(uid, [_text(
-                        f"📊 HX / HY 計算結果\n"
-                        f"━━━━━━━━━━━━━━━━━━━━\n"
-                        f"🔹 HX (Bar X) ：{bar_x} mm\n"
-                        f"🔹 HY (Bar Y) ：{bar_y} mm\n"
-                        f"━━━━━━━━━━━━━━━━━━━━\n"
-                        f"車款：{d['brand']} {d['model']} ({d['size']})\n"
-                        f"龍頭：{d['stem_length']}mm / {d['stem_angle']}° / {d['spacer']}mm spacer\n\n"
-                        f"輸入 #車架幾何 查詢其他車款"
-                    ), _img(hx_img)])
-                elif link:
-                    _push(uid, [_text(
-                        f"🔗 請點連結查看 HX / HY\n"
-                        f"━━━━━━━━━━━━━━━━━━━━\n"
-                        f"車款：{d['brand']} {d['model']} ({d['size']})\n"
-                        f"龍頭：{d['stem_length']}mm / {d['stem_angle']}° / {d['spacer']}mm spacer\n"
-                        f"━━━━━━━━━━━━━━━━━━━━\n"
-                        f"{link}\n\n"
-                        f"📌 開啟後捲到 Handlebar position 區塊"
-                    ), _img(hx_img)])
-                else:
-                    _push(uid, [_text(f"⚠️ 找不到此車款\n品牌：{d['brand']}  車款：{d['model']}\n請至 {VELOGICFIT_BASE} 手動搜尋")])
-            except Exception as e:
-                logger.error(f"BG error: {e}")
-                _push(uid, [_text("計算失敗，請輸入 #車架幾何 重試")])
-
-        threading.Thread(target=_bg, args=(user_id, data.copy()), daemon=True).start()
-
 def handle_bikeinsights_flow(event, user_id, text):
     state = geo_states[user_id]
     step  = state["step"]
