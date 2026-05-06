@@ -243,8 +243,47 @@ Saddle Fit 關鍵參數：
 **滾筒**：大面積筋膜放鬆，緩慢滾動
 **花生球**：脊椎兩側肌肉放鬆，不要直接壓脊椎骨
 
+== 單車幾何參數 - 正確定義 ==
+
+**HX (Handlebar X - 水平距離)**：
+從 BB 五通中心點，**水平往前**到把手中心點的距離（mm）
+
+**HY (Handlebar Y - 垂直高度)**：
+從 BB 五通中心點，**垂直往上**到把手中心點的高度（mm）
+
+**重要說明**：
+- HX 越大 = 把手越前傾，適合競速騎姿
+- HY 越大 = 把手越高，騎姿越直立舒適
+- HY 越小（甚至負值）= 把手越低，更具侵略性
+
+**相關參數**：
+- **Stack**：BB 五通到頭管上緣的垂直高度
+- **Reach**：BB 五通到頭管上緣的水平距離
+
+== 新增服務：HX/HY 推薦車款 ==
+
+當使用者提供自己測量的 HX 和 HY 數值，並詢問適合什麼車款時：
+
+**標準回覆流程**：
+1. 確認收到 HX 和 HY 數值
+2. 請使用者提供 2-3 個心儀的車款（品牌 + 型號）
+3. 說明服務內容：
+   「我們會根據您的 HX/HY 數值，計算這些車款的適配度，並提供詳細報告。
+   
+   📊 報告內容包括：
+   ✅ 各車款與您理想 HX/HY 的差異分析
+   ✅ 需要的龍頭長度、角度、墊片建議
+   ✅ 適合度評分與說明
+   
+   💰 服務費用：50 元/份報告
+   ⏰ 交付時間：明天回覆
+   
+   如果確定需要，請回覆「確定」，我們會通知專員為您計算。」
+
+4. 若使用者確認，推送通知給後台人員處理
+
 == 回答規則 ==
-1. 當使用者問到 Bikefit 或 Saddle Fit 時，用上述專業知識回答，並附上對應的說明圖片
+1. 當使用者問到 Bikefit 或 Saddle Fit 時，用上述專業知識回答
 2. 當使用者描述身體不適時，先簡短分析原因（3-5句），然後問：
    「您目前比較想了解的是：
    A. Bikefit 調整建議
@@ -252,10 +291,11 @@ Saddle Fit 關鍵參數：
 3. 當使用者選擇 A 或明確表達想預約時，引導到：https://orange-fruit-ai-bikefit.vercel.app/
 4. 回答要簡潔，不要一次給太多資訊
 5. **絕對不要與 Rich Menu 選單的關鍵字衝突**，選單關鍵字包括：
-   #單車伸展放鬆、#按摩球、#髖關節、#車架幾何、#車架對照
+   #單車伸展放鬆、#按摩球、#髖關節、#車架幾何、#車架對照、#Bikefit、#Saddle
 6. 若使用者只提到車款名稱但沒問問題，回覆：
    「收到！請問您想了解什麼呢？今天還有 {remaining} 次免費諮詢額度。」
 7. 同一段對話中「A/B 選項」只能問一次
+8. 當解釋 HX 和 HY 時，務必說明正確定義：HX 是水平往前距離，HY 是垂直往上高度
 '''
 
 BASE_IMG_URL = "https://raw.githubusercontent.com/chenpu87/Line-bot/main/images"
@@ -506,14 +546,43 @@ def handle_geo_command(event, command):
 
 # 保留你的所有 VelogicFit 和 BikeInsights 流程函數
 def handle_velogicfit_flow(event, user_id, text):
+    """處理 VelogicFit 流程（已修正迴圈問題）"""
+    
+    # ★ 修正 1：檢查取消指令
+    if text.strip() in ["取消", "重來", "退出", "cancel", "quit"]:
+        geo_states.pop(user_id, None)
+        _reply(event.reply_token, [_text(
+            "✅ 已取消查詢\n\n"
+            "需要重新開始請輸入：\n"
+            "#車架幾何  計算 HX / HY\n"
+            "#車架對照  車架幾何對照圖"
+        )])
+        return
+    
     state = geo_states[user_id]
     step  = state["step"]
     data  = state["data"]
+    
+    # ★ 修正 2：錯誤計數機制
+    error_count = state.get("error_count", 0)
+    if error_count >= 3:
+        geo_states.pop(user_id, None)
+        _reply(event.reply_token, [_text(
+            "❌ 輸入錯誤次數過多，已自動取消\n\n"
+            "需要重新開始請輸入 #車架幾何"
+        )])
+        return
 
     if step == 1:
         data["brand"] = text
         state["step"] = 2
-        _reply(event.reply_token, [_text(f"品牌：{text} ✅\n\n步驟 2／6　請輸入車款型號\n例如：Reacto、TCR、Madone")])
+        state["error_count"] = 0
+        _reply(event.reply_token, [_text(
+            f"品牌：{text} ✅\n\n"
+            f"步驟 2／6　請輸入車款型號\n"
+            f"例如：Reacto、TCR、Madone\n\n"
+            f"💡 輸入「取消」可退出查詢"
+        )])
 
     elif step == 2:
         _parts = text.strip().split()
@@ -524,6 +593,7 @@ def handle_velogicfit_flow(event, user_id, text):
             data["model"] = text
             data.setdefault("year", "")
         state["step"] = 3
+        state["error_count"] = 0
         _reply(event.reply_token, [_text(
             f"車款：{data['model']} ✅\n\n"
             f"步驟 3／6　請輸入尺寸\n"
@@ -531,34 +601,49 @@ def handle_velogicfit_flow(event, user_id, text):
             f"依照您的車架標示輸入即可：\n\n"
             f"英文尺寸：XXS / XS / S / M / L / XL\n"
             f"數字尺寸：47 / 50 / 52 / 54 / 56 / 58\n\n"
-            f"📌 請直接輸入車架上的尺寸標示"
+            f"📌 請直接輸入車架上的尺寸標示\n"
+            f"💡 輸入「取消」可退出查詢"
         )])
 
     elif step == 3:
         val = text.strip().upper()
         if not val:
-            _reply(event.reply_token, [_text("❌ 請輸入尺寸")])
+            state["error_count"] = error_count + 1
+            _reply(event.reply_token, [_text(
+                f"❌ 請輸入尺寸（剩餘 {3 - error_count} 次機會）\n\n"
+                f"或輸入「取消」退出查詢"
+            )])
             return
         data["size"] = val
         state["step"] = 4
+        state["error_count"] = 0
         _reply(event.reply_token, [_text(
-            f"尺寸：{val} ✅\n\n步驟 4／6　請輸入龍頭長度（mm）\n\n"
+            f"尺寸：{val} ✅\n\n"
+            f"步驟 4／6　請輸入龍頭長度（mm）\n\n"
             f"65 / 70 / 75 / 80 / 85 / 90 / 95 / 100 / 105\n"
-            f"110 / 115 / 120 / 125 / 130 / 135 / 140 / 145 / 150"
+            f"110 / 115 / 120 / 125 / 130 / 135 / 140 / 145 / 150\n\n"
+            f"💡 輸入「取消」可退出查詢"
         )])
 
     elif step == 4:
         val = text.replace("mm", "").strip()
         if val not in STEM_LENGTH_OPTIONS:
+            state["error_count"] = error_count + 1
             _reply(event.reply_token, [_text(
-                "❌ 請輸入有效龍頭長度（65-150mm，每 5mm）"
+                f"❌ 請輸入有效龍頭長度（剩餘 {3 - error_count} 次機會）\n\n"
+                f"65-150mm，每 5mm 一個選項\n"
+                f"或輸入「取消」退出查詢"
             )])
             return
         data["stem_length"] = val
         state["step"] = 5
+        state["error_count"] = 0
         _reply(event.reply_token, [_text(
-            f"龍頭長度：{val}mm ✅\n\n步驟 5／6　請選擇龍頭角度\n"
-            f"請回覆：-6 / -8 / -10 / -12 / -17\n（不填寫預設 -8°）"
+            f"龍頭長度：{val}mm ✅\n\n"
+            f"步驟 5／6　請選擇龍頭角度\n"
+            f"請回覆：-6 / -8 / -10 / -12 / -17\n"
+            f"（不填寫預設 -8°）\n\n"
+            f"💡 輸入「取消」可退出查詢"
         )])
 
     elif step == 5:
@@ -567,18 +652,27 @@ def handle_velogicfit_flow(event, user_id, text):
             val = "-8"
         data["stem_angle"] = val
         state["step"] = 6
+        state["error_count"] = 0
         _reply(event.reply_token, [_text(
-            f"龍頭角度：{val}° ✅\n\n步驟 6／6　請選擇墊片（Spacer）高度\n"
-            f"請回覆：10 / 15 / 20 / 25 / 30 / 35 / 40 / 45（mm）"
+            f"龍頭角度：{val}° ✅\n\n"
+            f"步驟 6／6　請選擇墊片（Spacer）高度\n"
+            f"請回覆：10 / 15 / 20 / 25 / 30 / 35 / 40 / 45（mm）\n\n"
+            f"💡 輸入「取消」可退出查詢"
         )])
 
     elif step == 6:
         val = text.replace("mm", "").strip()
         if val not in SPACER_OPTIONS:
-            _reply(event.reply_token, [_text("❌ 請輸入有效墊片高度：10 / 15 / 20 / 25 / 30 / 35 / 40 / 45（mm）")])
+            state["error_count"] = error_count + 1
+            _reply(event.reply_token, [_text(
+                f"❌ 請輸入有效墊片高度（剩餘 {3 - error_count} 次機會）\n\n"
+                f"10 / 15 / 20 / 25 / 30 / 35 / 40 / 45（mm）\n"
+                f"或輸入「取消」退出查詢"
+            )])
             return
 
         data["spacer"] = val
+        # ★ 修正 3：完成後立即清除狀態，避免迴圈
         geo_states.pop(user_id, None)
 
         _reply(event.reply_token, [_text(
@@ -590,7 +684,8 @@ def handle_velogicfit_flow(event, user_id, text):
             f"龍頭長度：{data['stem_length']}mm\n"
             f"龍頭角度：{data['stem_angle']}°\n"
             f"墊片高度：{data['spacer']}mm\n"
-            f"━━━━━━━━━━━━━━━━━━━━"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"⏳ 計算中，請稍候..."
         )])
 
         def _bg(uid, d):
@@ -598,6 +693,52 @@ def handle_velogicfit_flow(event, user_id, text):
                 result = _run_velogicfit_api(d)
                 bar_x  = result.get("bar_x", "")
                 bar_y  = result.get("bar_y", "")
+                link   = result.get("link", "")
+                hx_img = f"{BASE_IMG_URL}/bikefit/bikefit_the_hx_hy.jpg"
+                
+                if bar_x and bar_y:
+                    _push(uid, [
+                        _text(
+                            f"📊 HX / HY 計算結果\n"
+                            f"━━━━━━━━━━━━━━━━━━━━\n"
+                            f"🔹 HX (水平距離) ：{bar_x} mm\n"
+                            f"🔹 HY (垂直高度) ：{bar_y} mm\n"
+                            f"━━━━━━━━━━━━━━━━━━━━\n"
+                            f"車款：{d['brand']} {d['model']} ({d['size']})\n"
+                            f"龍頭：{d['stem_length']}mm / {d['stem_angle']}° / {d['spacer']}mm spacer\n\n"
+                            f"📌 HX = BB 五通水平往前到把手的距離\n"
+                            f"📌 HY = BB 五通垂直往上到把手的高度\n\n"
+                            f"需要重新查詢請輸入 #車架幾何"
+                        ),
+                        _img(hx_img)
+                    ])
+                elif link:
+                    _push(uid, [
+                        _text(
+                            f"🔗 請點連結查看 HX / HY\n"
+                            f"━━━━━━━━━━━━━━━━━━━━\n"
+                            f"車款：{d['brand']} {d['model']} ({d['size']})\n"
+                            f"龍頭：{d['stem_length']}mm / {d['stem_angle']}° / {d['spacer']}mm spacer\n"
+                            f"━━━━━━━━━━━━━━━━━━━━\n"
+                            f"{link}\n\n"
+                            f"📌 開啟後捲到 Handlebar position 區塊\n"
+                            f"📌 HX = BB 水平往前距離\n"
+                            f"📌 HY = BB 垂直往上高度"
+                        ),
+                        _img(hx_img)
+                    ])
+                else:
+                    _push(uid, [_text(
+                        f"⚠️ 找不到此車款\n"
+                        f"品牌：{d['brand']}  車款：{d['model']}\n\n"
+                        f"請至 {VELOGICFIT_BASE} 手動搜尋"
+                    )])
+            except Exception as e:
+                logger.error(f"BG error: {e}")
+                _push(uid, [_text("❌ 計算失敗，請輸入 #車架幾何 重試")])
+
+        threading.Thread(target=_bg, args=(user_id, data.copy()), daemon=True).start()
+
                 link   = result.get("link", "")
                 hx_img = f"{BASE_IMG_URL}/bikefit/bikefit_the_hx_hy.jpg"
                 if bar_x and bar_y:
@@ -815,6 +956,148 @@ def _bdisp(bike):
     return f"{bike['brand']} {bike['model']}{year} ({bike['size']})"
 
 # ==========================================
+# HX/HY 推薦車款服務（新增）
+# ==========================================
+
+def handle_hxhy_recommendation_request(event, user_id):
+    """處理 HX/HY 推薦車款需求 - 入口"""
+    _reply(event.reply_token, [_text(
+        "📐 HX/HY 車款推薦服務\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        "請依序提供以下資訊：\n\n"
+        "1️⃣ 您的 HX 數值（mm）\n"
+        "2️⃣ 您的 HY 數值（mm）\n"
+        "3️⃣ 想考慮的 2-3 個車款\n"
+        "   （例如：Merida Reacto、Giant TCR、Canyon Aeroad）\n\n"
+        "範例格式：\n"
+        "HX 450mm\n"
+        "HY 620mm\n"
+        "想比較：Merida Reacto、Giant TCR\n\n"
+        "💡 我們會計算這些車款的適配度並提供報告\n"
+        "💡 輸入「取消」可退出"
+    )])
+    
+    # 建立推薦服務狀態
+    geo_states[user_id] = {
+        "mode": "hxhy_recommendation",
+        "step": 1,
+        "data": {}
+    }
+
+def handle_hxhy_recommendation_flow(event, user_id, text):
+    """處理 HX/HY 推薦服務的對話流程"""
+    
+    if text.strip() in ["取消", "退出", "cancel"]:
+        geo_states.pop(user_id, None)
+        _reply(event.reply_token, [_text("✅ 已取消服務")])
+        return
+    
+    state = geo_states[user_id]
+    data  = state["data"]
+    
+    # 嘗試從文字中提取 HX、HY、車款
+    hx_match = re.search(r'HX[：:=\s]*(\d+)', text, re.IGNORECASE)
+    hy_match = re.search(r'HY[：:=\s]*(\d+)', text, re.IGNORECASE)
+    
+    if hx_match:
+        data["hx"] = hx_match.group(1)
+    if hy_match:
+        data["hy"] = hy_match.group(1)
+    
+    # 提取車款（去除 HX/HY 後的文字）
+    cleaned_text = re.sub(r'HX[：:=\s]*\d+|HY[：:=\s]*\d+', '', text, flags=re.IGNORECASE).strip()
+    if cleaned_text and len(cleaned_text) > 3:
+        data["bikes"] = cleaned_text
+    
+    # 檢查是否已收集完整資訊
+    if "hx" in data and "hy" in data and "bikes" in data:
+        geo_states.pop(user_id, None)
+        
+        _reply(event.reply_token, [_text(
+            f"✅ 已收到您的需求\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"HX：{data['hx']} mm\n"
+            f"HY：{data['hy']} mm\n"
+            f"考慮車款：{data['bikes']}\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"📊 報告內容：\n"
+            f"✅ 各車款與您理想 HX/HY 的差異\n"
+            f"✅ 龍頭長度、角度、墊片建議\n"
+            f"✅ 適合度評分與說明\n\n"
+            f"💰 服務費用：50 元/份\n"
+            f"⏰ 交付時間：明天回覆\n\n"
+            f"確定需要此服務請回覆「確定」"
+        )])
+        
+        # 暫存資料等待確認
+        geo_states[user_id] = {
+            "mode": "hxhy_confirm",
+            "data": data
+        }
+    else:
+        # 缺少資訊，繼續詢問
+        missing = []
+        if "hx" not in data:
+            missing.append("HX 數值")
+        if "hy" not in data:
+            missing.append("HY 數值")
+        if "bikes" not in data:
+            missing.append("想比較的車款")
+        
+        _reply(event.reply_token, [_text(
+            f"📝 還需要以下資訊：\n"
+            f"{chr(10).join('• ' + m for m in missing)}\n\n"
+            f"請一次提供，例如：\n"
+            f"HX 450、HY 620\n"
+            f"想比較 Merida Reacto 和 Giant TCR"
+        )])
+
+def handle_hxhy_confirm(event, user_id, text):
+    """處理 HX/HY 推薦服務確認"""
+    
+    if text.strip() in ["確定", "確認", "好", "OK", "ok"]:
+        state = geo_states.pop(user_id, None)
+        data  = state["data"]
+        
+        _reply(event.reply_token, [_text(
+            "✅ 已確認訂單\n\n"
+            "我們的專員會在明天提供完整報告給您！\n"
+            "費用 50 元將於報告交付時通知付款方式。"
+        )])
+        
+        # 通知後台
+        notify_hxhy_recommendation(data, user_id)
+    else:
+        geo_states.pop(user_id, None)
+        _reply(event.reply_token, [_text("已取消服務，有需要隨時告訴我！")])
+
+def notify_hxhy_recommendation(data: dict, user_id: str):
+    """通知後台人員處理 HX/HY 推薦需求"""
+    if not NOTIFY_GROUP_ID:
+        logger.warning("NOTIFY_GROUP_ID 未設定，無法發送通知")
+        return
+    
+    tw_now = datetime.datetime.utcnow() + datetime.timedelta(hours=TZ_OFFSET)
+    time_str = tw_now.strftime("%m/%d %H:%M")
+    
+    msg = (
+        f"📐 HX/HY 車款推薦服務訂單\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"⏰ {time_str}\n"
+        f"👤 User: {user_id[:8]}...\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🔹 HX：{data['hx']} mm\n"
+        f"🔹 HY：{data['hy']} mm\n"
+        f"🚴 考慮車款：{data['bikes']}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"💰 服務費：50 元\n"
+        f"⏰ 明天回覆\n\n"
+        f"請計算後回傳報告給客人"
+    )
+    _push(NOTIFY_GROUP_ID, [_text(msg)])
+    logger.info(f"已通知 HX/HY 推薦需求：{user_id}")
+
+# ==========================================
 # 路由
 # ==========================================
 @app.route("/callback", methods=['POST'])
@@ -838,14 +1121,26 @@ def handle_message(event):
     group_id  = getattr(event.source, "group_id", None)
     app.logger.info(f"收到訊息: {user_text} | user={user_id} | group={group_id}")
 
+    # ★ 新增：檢查是否在流程中
     if user_id in geo_states:
         mode = geo_states[user_id].get("mode")
+        
         if mode == "velogicfit":
             handle_velogicfit_flow(event, user_id, user_text)
         elif mode == "bikeinsights":
             handle_bikeinsights_flow(event, user_id, user_text)
+        elif mode == "hxhy_recommendation":  # ★ 新增
+            handle_hxhy_recommendation_flow(event, user_id, user_text)
+        elif mode == "hxhy_confirm":  # ★ 新增
+            handle_hxhy_confirm(event, user_id, user_text)
         return
 
+    # ★ 新增：HX/HY 推薦服務入口
+    if user_text.startswith('#HX') or user_text.startswith('#推薦車款'):
+        handle_hxhy_recommendation_request(event, user_id)
+        return
+
+    # 原有指令處理
     if user_text.startswith('#'):
         handle_rich_menu_command(event, user_text)
     else:
