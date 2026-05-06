@@ -1071,6 +1071,8 @@ def notify_hxhy_recommendation(data: dict, user_id: str):
         logger.warning("NOTIFY_GROUP_ID 未設定，無法發送通知")
         return
     
+    logger.info(f"準備發送 HX/HY 推薦通知到群組：{NOTIFY_GROUP_ID}")
+    
     tw_now = datetime.datetime.utcnow() + datetime.timedelta(hours=TZ_OFFSET)
     time_str = tw_now.strftime("%m/%d %H:%M")
     
@@ -1088,8 +1090,13 @@ def notify_hxhy_recommendation(data: dict, user_id: str):
         f"⏰ 明天回覆\n\n"
         f"請計算後回傳報告給客人"
     )
-    _push(NOTIFY_GROUP_ID, [_text(msg)])
-    logger.info(f"已通知 HX/HY 推薦需求：{user_id}")
+    
+    try:
+        _push(NOTIFY_GROUP_ID, [_text(msg)])
+        logger.info(f"✅ 成功發送 HX/HY 推薦通知：{user_id}")
+    except Exception as e:
+        logger.error(f"❌ 發送通知失敗：{e}")
+
 
 # ==========================================
 # 路由
@@ -1131,6 +1138,26 @@ def handle_message(event):
             _reply(event.reply_token, [_text(
                 "❌ 此訊息不是來自群組\n\n"
                 "請在群組中輸入 #群組ID 來取得群組 ID"
+            )])
+        return
+
+    # ★ 新增：測試通知指令（僅限群組使用）
+    if user_text == "#測試通知" and group_id:
+        if group_id == NOTIFY_GROUP_ID:
+            test_data = {
+                "hx": "999",
+                "hy": "888",
+                "bikes": "測試車款 A、測試車款 B"
+            }
+            test_user_id = "U_TEST_USER_123456"
+            
+            _reply(event.reply_token, [_text("正在發送測試通知...")])
+            notify_hxhy_recommendation(test_data, test_user_id)
+        else:
+            _reply(event.reply_token, [_text(
+                f"❌ 此群組 ID 與設定的 NOTIFY_GROUP_ID 不符\n\n"
+                f"當前群組：{group_id}\n"
+                f"設定群組：{NOTIFY_GROUP_ID or '(未設定)'}"
             )])
         return
 
