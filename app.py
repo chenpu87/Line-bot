@@ -13,7 +13,8 @@ import urllib.parse
 import urllib.request
 import requests
 import threading
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 from flask import Flask, request, abort, send_file
 
@@ -135,8 +136,6 @@ FRAME_CODE_MAP = {
       ("time", "fluidity","Disc"): "TIM-FLUID-25",
       ("time", "scylon", "2026"): "TIM-SCY25",
       ("time", "scylon", "2025"): "TIM-SCY25",
-      ("time", "scylon", "2026"): "TIM-SCY25",
-      ("time", "scylon", "2025"): "TIM-SCY25",
       ("time", "alpe d'huez", "2026"): "TIM-ALP-DHUDI",
       ("time", "alpe d'huez", "2025"): "TIM-ALP-DHUDI",
       ("time", "alpe dhuez", "2026"): "TIM-ALP-DHUDI6",
@@ -153,7 +152,11 @@ FRAME_CODE_MAP = {
 # VelogicFit 完整 URL（含 app. subdomain）
 VELOGICFIT_BASE = "https://app.velogicfit.com/frame-comparison"
 
-genai.configure(api_key=GEMINI_API_KEY)
+# ==========================================
+# Gemini 新版 client 初始化
+# ==========================================
+gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+
 configuration = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
 handler       = WebhookHandler(LINE_CHANNEL_SECRET)
 app           = Flask(__name__)
@@ -421,9 +424,22 @@ def handle_ai_conversation(event, user_text):
 [系統資訊] 使用者今日剩餘免費諮詢次數：{remaining} 次（共 {DAILY_LIMIT} 次）
 當提到剩餘額度時，請使用這個數字。"""
 
-        model      = genai.GenerativeModel(model_name='gemini-2.5-flash', system_instruction=dynamic_prompt)
-        chat       = model.start_chat(history=conversation_history[user_id][:-1])
-        reply_text = chat.send_message(user_text).text
+        # 轉換對話歷史格式給新版 SDK
+        history_contents = []
+        for msg in conversation_history[user_id][:-1]:
+            role = "user" if msg["role"] == "user" else "model"
+            text_part = msg["parts"][0] if msg["parts"] else ""
+            history_contents.append({"role": role, "parts": [{"text": text_part}]})
+        history_contents.append({"role": "user", "parts": [{"text": user_text}]})
+
+        response = gemini_client.models.generate_content(
+            model="gemini-2.5-flash-preview-04-17",
+            contents=history_contents,
+            config=types.GenerateContentConfig(
+                system_instruction=dynamic_prompt
+            )
+        )
+        reply_text = response.text
         conversation_history[user_id].append({"role": "model", "parts": [reply_text]})
         if len(conversation_history[user_id]) > 20:
             conversation_history[user_id] = conversation_history[user_id][-20:]
