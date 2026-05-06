@@ -432,8 +432,11 @@ def notify_owner(bike1: dict, bike2: dict, requester_user_id: str):
     logger.info(f"已通知群組：{NOTIFY_GROUP_ID}")
 
 def handle_rich_menu_command(event, command):
+    # ★ 修正：支援多種車架幾何相關指令
+    geo_commands = ["#車架幾何", "#車架對照", "#HX", "#HXHY", "#計算HX", "#計算HXHY"]
+    
     if command not in IMAGE_DATABASE:
-        if command in ("#車架幾何", "#車架對照"):
+        if command in geo_commands:
             handle_geo_command(event, command)
         else:
             handle_ai_conversation(event, command)
@@ -523,16 +526,19 @@ def handle_ai_conversation(event, user_text):
 
 def handle_geo_command(event, command):
     user_id = event.source.user_id
+    # ★ 強制清除所有舊狀態
     if user_id in geo_states:
         del geo_states[user_id]
 
-    if command == "#車架幾何":
+    # ★ 修正：支援多種 VelogicFit 觸發方式
+    if command in ["#車架幾何", "#HX", "#HXHY", "#計算HX", "#計算HXHY"]:
         geo_states[user_id] = {"mode": "velogicfit", "step": 1, "data": {}}
         _reply(event.reply_token, [_text(
             "🔢 Handlebar Position 計算\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
             "步驟 1／6　請輸入車架品牌\n"
-            "例如：Merida、Giant、Trek、Canyon"
+            "例如：Merida、Giant、Trek、Canyon\n\n"
+            "💡 輸入「取消」可退出查詢"
         )])
 
     elif command == "#車架對照":
@@ -546,7 +552,8 @@ def handle_geo_command(event, command):
             "  Merida Reacto 2026 S\n"
             "  Giant TCR 2025 M\n"
             "  Factor One 2026 56\n\n"
-            "（年份可省略，尺寸支援英文或數字）"
+            "（年份可省略，尺寸支援英文或數字）\n\n"
+            "💡 輸入「取消」可退出查詢"
         )])
 
 # 保留你的所有 VelogicFit 和 BikeInsights 流程函數
@@ -1134,8 +1141,10 @@ def handle_message(event):
             handle_hxhy_confirm(event, user_id, user_text)
         return
 
-    # ★ 新增：HX/HY 推薦服務入口
-    if user_text.startswith('#HX') or user_text.startswith('#推薦車款'):
+    # ★ 修正：區分 VelogicFit 和 HX/HY 推薦服務
+    # VelogicFit: 已知車款，計算 HX/HY
+    # HX/HY 推薦: 已知 HX/HY，推薦車款
+    if user_text in ["#推薦車款", "#車款推薦"]:
         handle_hxhy_recommendation_request(event, user_id)
         return
 
