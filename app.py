@@ -433,7 +433,7 @@ def handle_ai_conversation(event, user_text):
         history_contents.append({"role": "user", "parts": [{"text": user_text}]})
 
         response = gemini_client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-1.5-flash",
             contents=history_contents,
             config=types.GenerateContentConfig(
                 system_instruction=dynamic_prompt
