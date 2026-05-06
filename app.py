@@ -150,8 +150,6 @@ FRAME_CODE_MAP = {
       ("no22", "reactor", "2026"): "N22-REA-26",
   }
 
-}
-
 # VelogicFit 完整 URL（含 app. subdomain）
 VELOGICFIT_BASE = "https://app.velogicfit.com/frame-comparison"
 
