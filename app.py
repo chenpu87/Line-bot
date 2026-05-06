@@ -979,6 +979,15 @@ def handle_hxhy_recommendation_flow(event, user_id, text):
     state = geo_states[user_id]
     data  = state["data"]
     
+    # ★ 新增：判斷是否為問題（包含問號或問句關鍵字）
+    is_question = any(keyword in text for keyword in ["嗎", "？", "?", "是什麼", "如何", "怎麼", "怎樣", "為什麼"])
+    
+    if is_question:
+        # 使用者在問問題，不是要服務 → 轉給 AI 對話
+        geo_states.pop(user_id, None)
+        handle_ai_conversation(event, text)
+        return
+    
     # 嘗試從文字中提取 HX、HY、車款
     hx_match = re.search(r'HX[：:=\s]*(\d+)', text, re.IGNORECASE)
     hy_match = re.search(r'HY[：:=\s]*(\d+)', text, re.IGNORECASE)
@@ -990,6 +999,11 @@ def handle_hxhy_recommendation_flow(event, user_id, text):
     
     # 提取車款（去除 HX/HY 後的文字）
     cleaned_text = re.sub(r'HX[：:=\s]*\d+|HY[：:=\s]*\d+', '', text, flags=re.IGNORECASE).strip()
+    
+    # ★ 修正：只有當文字中包含明確的車款資訊（且不是問句）才視為有效
+    # 排除問句關鍵字
+    cleaned_text = re.sub(r'(嗎|？|\?|是什麼|如何|怎麼|怎樣|為什麼|適合|可以)', '', cleaned_text).strip()
+    
     if cleaned_text and len(cleaned_text) > 3:
         data["bikes"] = cleaned_text
     
