@@ -433,7 +433,7 @@ def handle_ai_conversation(event, user_text):
         history_contents.append({"role": "user", "parts": [{"text": user_text}]})
 
         response = gemini_client.models.generate_content(
-            model="gemini-1.5-flash",
+            model="gemini-2.0-flash",
             contents=history_contents,
             config=types.GenerateContentConfig(
                 system_instruction=dynamic_prompt
@@ -445,7 +445,7 @@ def handle_ai_conversation(event, user_text):
             conversation_history[user_id] = conversation_history[user_id][-20:]
     except Exception as e:
         logger.error(f"Gemini error: {e}")
-        reply_text = "抱歉，教練正在忙碌中，請稍後再試！"
+        reply_text = "抱歉，請稍後再試！"
 
     messages = [_text(reply_text)]
     for kw, imgs in KEYWORD_IMAGE_MAP.items():
