@@ -509,8 +509,13 @@ def handle_ai_conversation(event, user_text):
         reply_text = "抱歉，教練正在忙碌中，請稍後再試！"
 
     messages = [_text(reply_text)]
+    
+    # ★ 修正：只在使用者訊息中包含關鍵字時才附加圖片
+    # 避免 AI 回覆中提到 "bikefit" 就重複附加圖片
+    # 只檢查用戶輸入，不檢查 AI 回覆內容
     for kw, imgs in KEYWORD_IMAGE_MAP.items():
         if kw in user_text.lower():
+            logger.info(f"使用者提及關鍵字：{kw}，附加圖片")
             messages += [_img(u) for u in imgs[:2]]
             break
 
@@ -1024,9 +1029,17 @@ def handle_hxhy_recommendation_flow(event, user_id, text):
 def handle_hxhy_confirm(event, user_id, text):
     """處理 HX/HY 推薦服務確認"""
     
+    # ★ 修正：先檢查狀態是否存在，避免重複處理
+    if user_id not in geo_states:
+        logger.warning(f"User {user_id} 狀態已清除，忽略重複確認")
+        return
+    
     if text.strip() in ["確定", "確認", "好", "OK", "ok"]:
         state = geo_states.pop(user_id, None)
-        data  = state["data"]
+        if not state:
+            return  # 已處理過，不再重複
+            
+        data = state["data"]
         
         _reply(event.reply_token, [_text(
             "✅ 已確認訂單\n\n"
@@ -1089,6 +1102,23 @@ def handle_message(event):
     user_id   = event.source.user_id
     group_id  = getattr(event.source, "group_id", None)
     app.logger.info(f"收到訊息: {user_text} | user={user_id} | group={group_id}")
+
+    # ★ 新增：查詢群組 ID 的指令（方便設定 NOTIFY_GROUP_ID）
+    if user_text == "#群組ID" or user_text == "#groupid":
+        if group_id:
+            _reply(event.reply_token, [_text(
+                f"✅ 此群組的 ID：\n\n"
+                f"`{group_id}`\n\n"
+                f"請複製此 ID，到 Render 環境變數設定：\n"
+                f"變數名稱：NOTIFY_GROUP_ID\n"
+                f"變數值：{group_id}"
+            )])
+        else:
+            _reply(event.reply_token, [_text(
+                "❌ 此訊息不是來自群組\n\n"
+                "請在群組中輸入 #群組ID 來取得群組 ID"
+            )])
+        return
 
     # ★ 新增：檢查是否在流程中
     if user_id in geo_states:
