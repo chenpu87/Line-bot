@@ -973,6 +973,11 @@ def handle_hxhy_recommendation_flow(event, user_id, text):
         _reply(event.reply_token, [_text("✅ 已取消服務")])
         return
     
+    # ★ 修正：檢查狀態是否存在，避免重複處理
+    if user_id not in geo_states:
+        logger.warning(f"User {user_id} 狀態已清除，忽略重複輸入")
+        return
+    
     state = geo_states[user_id]
     data  = state["data"]
     
@@ -992,6 +997,7 @@ def handle_hxhy_recommendation_flow(event, user_id, text):
     
     # 檢查是否已收集完整資訊
     if "hx" in data and "hy" in data and "bikes" in data:
+        # ★ 修正：先移除狀態，再設定新狀態，避免重複處理
         geo_states.pop(user_id, None)
         
         _reply(event.reply_token, [_text(
@@ -1010,7 +1016,8 @@ def handle_hxhy_recommendation_flow(event, user_id, text):
             f"確定需要此服務請回覆「確定」"
         )])
         
-        # 暫存資料等待確認
+        # ★ 修正：只在成功 reply 後才設定新狀態
+        # 這樣如果 webhook 重複觸發，第二次會被上面的檢查擋住
         geo_states[user_id] = {
             "mode": "hxhy_confirm",
             "data": data
@@ -1108,7 +1115,9 @@ def handle_message(event):
     user_text = event.message.text.strip()
     user_id   = event.source.user_id
     group_id  = getattr(event.source, "group_id", None)
-    app.logger.info(f"收到訊息: {user_text} | user={user_id} | group={group_id}")
+    reply_token = event.reply_token
+    
+    app.logger.info(f"收到訊息: {user_text} | user={user_id} | group={group_id} | token={reply_token[:8]}...")
 
     # ★ 新增：查詢群組 ID 的指令（方便設定 NOTIFY_GROUP_ID）
     if user_text == "#群組ID" or user_text == "#groupid":
