@@ -465,7 +465,7 @@ def handle_ai_conversation(event, user_text):
             for m in conversation_history[user_id]
         ]
         response = genai_client.models.generate_content(
-            model='gemini-2.0-flash-lite',
+            model='gemini-2.5-flash',
             contents=history_for_api,
             config=types.GenerateContentConfig(
                 system_instruction=dynamic_prompt,
