@@ -13,7 +13,7 @@ import urllib.parse
 import urllib.request
 import requests
 import threading
-from google import genai
+import google.genai as genai
 from google.genai import types
 
 from flask import Flask, request, abort, send_file
