@@ -458,7 +458,7 @@ def handle_ai_conversation(event, user_text):
 [系統資訊] 使用者今日剩餘免費諮詢次數：{remaining} 次（共 {DAILY_LIMIT} 次）
 當提到剩餘額度時，請使用這個數字。"""
 
-        model      = genai.GenerativeModel(model_name='gemini-2.5-flash-preview-05-20', system_instruction=dynamic_prompt)
+        model = genai.GenerativeModel(model_name='gemini-1.5-flash', system_instruction=dynamic_prompt)
         chat       = model.start_chat(history=conversation_history[user_id][:-1])
         reply_text = chat.send_message(user_text).text
         conversation_history[user_id].append({"role": "model", "parts": [reply_text]})
@@ -474,7 +474,7 @@ def handle_ai_conversation(event, user_text):
             messages += [_img(u) for u in imgs[:2]]
             break
 
-    _reply(event.reply_token, messages)
+    _push(user_id, messages)
 
 def handle_geo_command(event, command):
     user_id = event.source.user_id
