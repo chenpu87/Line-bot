@@ -13,7 +13,8 @@ import urllib.parse
 import urllib.request
 import requests
 import threading
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 from flask import Flask, request, abort, send_file
 
@@ -153,7 +154,7 @@ FRAME_CODE_MAP = {
 
 VELOGICFIT_BASE = "https://app.velogicfit.com/frame-comparison"
 
-genai.configure(api_key=GEMINI_API_KEY)
+genai_client = genai.Client(api_key=GEMINI_API_KEY)
 configuration = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
 handler       = WebhookHandler(LINE_CHANNEL_SECRET)
 app           = Flask(__name__)
@@ -445,7 +446,7 @@ def handle_ai_conversation(event, user_text):
         return
 
     add_count(user_id)
-    _reply(event.reply_token, [_text("🤔 小橙正在思考中...")])
+    reply_token = event.reply_token
 
     if user_id not in conversation_history:
         conversation_history[user_id] = []
@@ -458,9 +459,21 @@ def handle_ai_conversation(event, user_text):
 [系統資訊] 使用者今日剩餘免費諮詢次數：{remaining} 次（共 {DAILY_LIMIT} 次）
 當提到剩餘額度時，請使用這個數字。"""
 
-        model = genai.GenerativeModel(model_name='gemini-1.5-flash', system_instruction=dynamic_prompt)
-        chat       = model.start_chat(history=conversation_history[user_id][:-1])
-        reply_text = chat.send_message(user_text).text
+        # 新版 SDK：google.genai
+        history_for_api = [
+            {"role": m["role"], "parts": [{"text": p} if isinstance(p, str) else p for p in m["parts"]]}
+            for m in conversation_history[user_id]
+        ]
+        response = genai_client.models.generate_content(
+            model='gemini-2.0-flash-lite',
+            contents=history_for_api,
+            config=types.GenerateContentConfig(
+                system_instruction=dynamic_prompt,
+                max_output_tokens=1000,
+                temperature=0.7,
+            )
+        )
+        reply_text = response.text
         conversation_history[user_id].append({"role": "model", "parts": [reply_text]})
         if len(conversation_history[user_id]) > 20:
             conversation_history[user_id] = conversation_history[user_id][-20:]
@@ -474,7 +487,7 @@ def handle_ai_conversation(event, user_text):
             messages += [_img(u) for u in imgs[:2]]
             break
 
-    _push(user_id, messages)
+    _reply(reply_token, messages)
 
 def handle_geo_command(event, command):
     user_id = event.source.user_id
